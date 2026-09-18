@@ -1,0 +1,6 @@
+{
+  "name": "Stt24",
+  "description": "Applicazione di registro giornaliero Stt24.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

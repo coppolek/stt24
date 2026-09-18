@@ -1,0 +1,90 @@
+{
+  "entities": {
+    "Role": {
+      "title": "Role",
+      "description": "User role assignment.",
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["admin", "writer", "viewer"],
+          "maxLength": 20
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "updatedAt": {
+          "type": "number"
+        }
+      },
+      "required": ["role", "email"]
+    },
+    "Ticket": {
+      "title": "Ticket",
+      "description": "Un registro giornaliero (daily log).",
+      "type": "object",
+      "properties": {
+        "titolo": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "priorita": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "tipoEvento": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "dataOra": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "risorsa": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "edificio": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "postazione": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "descrizione": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "userId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "User ID of the creator."
+        },
+        "createdAt": {
+          "type": "number"
+        }
+      },
+      "required": ["descrizione", "userId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/roles/{userId}": {
+      "schema": {
+        "$ref": "#/entities/Role"
+      },
+      "description": "User roles and permissions."
+    },
+    "/tickets/{ticketId}": {
+      "schema": {
+        "$ref": "#/entities/Ticket"
+      },
+      "description": "Collection of daily logs/tickets."
+    }
+  }
+}
