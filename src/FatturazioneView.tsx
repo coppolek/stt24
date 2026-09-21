@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Upload, File, FileText, Image as ImageIcon, X, FolderOpen, Plus, Pencil, Trash2, Check } from 'lucide-react';
+import { useAuth } from './AuthContext';
 import { 
   getTabAttachment, 
   saveTabAttachment, 
@@ -12,6 +13,7 @@ import {
 } from './storage';
 
 export default function FatturazioneView() {
+  const { isWriter } = useAuth();
   const [tabs, setTabs] = useState<string[]>(DEFAULT_TABS);
   const [activeTab, setActiveTab] = useState('Acqua');
   const [attachment, setAttachment] = useState<{ name: string, type: string, url: string, file: File } | null>(null);
@@ -181,22 +183,24 @@ export default function FatturazioneView() {
           <p className="text-sm text-gray-500">Gestisci i documenti per ogni sezione</p>
         </div>
         
-        <div className="flex items-center gap-3">
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileSelect} 
-            accept="image/*,.pdf,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" 
-            className="hidden" 
-          />
-          <button 
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-2 px-4 py-2 bg-[#3b4781] text-white rounded-md text-sm font-medium hover:bg-[#2d325a] transition-colors"
-          >
-            <Upload size={18} />
-            <span>Allega Documento</span>
-          </button>
-        </div>
+        {isWriter && (
+          <div className="flex items-center gap-3">
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleFileSelect} 
+              accept="image/*,.pdf,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" 
+              className="hidden" 
+            />
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-2 px-4 py-2 bg-[#3b4781] text-white rounded-md text-sm font-medium hover:bg-[#2d325a] transition-colors"
+            >
+              <Upload size={18} />
+              <span>Allega Documento</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Tabs Bar with Create, Edit, Delete */}
@@ -219,44 +223,48 @@ export default function FatturazioneView() {
                 </span>
 
                 {/* Modifica & Elimina bottoni */}
-                <div className={`flex items-center pr-2 gap-0.5 transition-opacity ${
-                  isActive ? 'opacity-90' : 'opacity-0 group-hover:opacity-80'
-                }`}>
-                  <button
-                    type="button"
-                    onClick={(e) => handleStartEditTab(tab, e)}
-                    title={`Rinomina "${tab}"`}
-                    className="p-1 text-gray-400 hover:text-[#3b4781] hover:bg-gray-200/70 rounded transition-colors"
-                  >
-                    <Pencil size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => handleStartDeleteTab(tab, e)}
-                    title={`Elimina "${tab}"`}
-                    className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
+                {isWriter && (
+                  <div className={`flex items-center pr-2 gap-0.5 transition-opacity ${
+                    isActive ? 'opacity-90' : 'opacity-0 group-hover:opacity-80'
+                  }`}>
+                    <button
+                      type="button"
+                      onClick={(e) => handleStartEditTab(tab, e)}
+                      title={`Rinomina "${tab}"`}
+                      className="p-1 text-gray-400 hover:text-[#3b4781] hover:bg-gray-200/70 rounded transition-colors"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => handleStartDeleteTab(tab, e)}
+                      title={`Elimina "${tab}"`}
+                      className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
 
         {/* Pulsante Crea Nuova Scheda */}
-        <button
-          type="button"
-          onClick={() => {
-            setIsCreatingTab(true);
-            setNewTabName('');
-          }}
-          className="flex items-center gap-1.5 px-3 py-1.5 ml-2 my-2 text-xs font-semibold text-[#3b4781] hover:text-white bg-blue-50 hover:bg-[#3b4781] border border-blue-200 hover:border-[#3b4781] rounded-md transition-all shrink-0 cursor-pointer shadow-2xs"
-          title="Aggiungi una nuova scheda"
-        >
-          <Plus size={14} />
-          <span>Nuova scheda</span>
-        </button>
+        {isWriter && (
+          <button
+            type="button"
+            onClick={() => {
+              setIsCreatingTab(true);
+              setNewTabName('');
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 ml-2 my-2 text-xs font-semibold text-[#3b4781] hover:text-white bg-blue-50 hover:bg-[#3b4781] border border-blue-200 hover:border-[#3b4781] rounded-md transition-all shrink-0 cursor-pointer shadow-2xs"
+            title="Aggiungi una nuova scheda"
+          >
+            <Plus size={14} />
+            <span>Nuova scheda</span>
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-hidden flex flex-col p-6">
@@ -267,11 +275,13 @@ export default function FatturazioneView() {
                 {attachment.type.startsWith('image/') ? <ImageIcon size={18} className="text-blue-500" /> : attachment.type === 'application/pdf' ? <FileText size={18} className="text-red-500" /> : <File size={18} className="text-green-600" />}
                 Documento di riferimento ({activeTab}): <span className="font-normal text-gray-600">{attachment.name}</span>
               </h4>
-              <div className="flex items-center gap-2">
-                <button onClick={clearAttachment} className="text-gray-400 hover:text-red-600 transition-colors p-1.5 rounded-full hover:bg-white" title="Rimuovi">
-                  <X size={18} />
-                </button>
-              </div>
+              {isWriter && (
+                <div className="flex items-center gap-2">
+                  <button onClick={clearAttachment} className="text-gray-400 hover:text-red-600 transition-colors p-1.5 rounded-full hover:bg-white" title="Rimuovi">
+                    <X size={18} />
+                  </button>
+                </div>
+              )}
             </div>
             <div className="p-4 flex-1 overflow-auto flex justify-center items-center bg-gray-50/50">
               {attachment.type.startsWith('image/') && (

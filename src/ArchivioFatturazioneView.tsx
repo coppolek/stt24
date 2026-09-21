@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, File, FileText, Image as ImageIcon, Trash2, ExternalLink, Search, FolderOpen } from 'lucide-react';
+import { Upload, File, FileText, Image as ImageIcon, Trash2, ExternalLink, Search, FolderOpen, Lock } from 'lucide-react';
+import { useAuth } from './AuthContext';
 import { getArchive, saveToArchive, removeFromArchive, ArchivedDocument } from './storage';
 
 export default function ArchivioFatturazioneView() {
+  const { isWriter } = useAuth();
   const [documents, setDocuments] = useState<(ArchivedDocument & {fileUrl: string})[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -108,55 +110,67 @@ export default function ArchivioFatturazioneView() {
 
       <div className="flex-1 overflow-auto p-6 flex flex-col md:flex-row gap-6 items-start">
         {/* Upload Form */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5 w-full md:w-1/3 shrink-0">
-          <h3 className="font-semibold text-lg text-gray-800 mb-4 flex items-center gap-2">
-            <Upload size={18} className="text-[#3b4781]" />
-            Nuovo Caricamento
-          </h3>
-          
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">ID Ditta / Utente *</label>
-              <input 
-                type="text" 
-                value={relatedId}
-                onChange={e => setRelatedId(e.target.value)}
-                placeholder="Es. 04532360403"
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781]"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Descrizione (opzionale)</label>
-              <input 
-                type="text" 
-                value={description}
-                onChange={e => setDescription(e.target.value)}
-                placeholder="Es. Fattura Q4 2025"
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781]"
-              />
-            </div>
+        {isWriter ? (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5 w-full md:w-1/3 shrink-0">
+            <h3 className="font-semibold text-lg text-gray-800 mb-4 flex items-center gap-2">
+              <Upload size={18} className="text-[#3b4781]" />
+              Nuovo Caricamento
+            </h3>
             
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleFileUpload} 
-              accept="image/*,.pdf,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" 
-              className="hidden" 
-            />
-            
-            <button 
-              onClick={() => fileInputRef.current?.click()}
-              disabled={!relatedId.trim()}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#3b4781] text-white rounded-md text-sm font-medium hover:bg-[#2d325a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <File size={16} />
-              Seleziona e Carica File
-            </button>
-            <p className="text-xs text-gray-400 text-center mt-2">
-              Formati supportati: PDF, XLS, JPG, PNG
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ID Ditta / Utente *</label>
+                <input 
+                  type="text" 
+                  value={relatedId}
+                  onChange={e => setRelatedId(e.target.value)}
+                  placeholder="Es. 04532360403"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781]"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Descrizione (opzionale)</label>
+                <input 
+                  type="text" 
+                  value={description}
+                  onChange={e => setDescription(e.target.value)}
+                  placeholder="Es. Fattura Q4 2025"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781]"
+                />
+              </div>
+              
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleFileUpload} 
+                accept="image/*,.pdf,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" 
+                className="hidden" 
+              />
+              
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                disabled={!relatedId.trim()}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#3b4781] text-white rounded-md text-sm font-medium hover:bg-[#2d325a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <File size={16} />
+                Seleziona e Carica File
+              </button>
+              <p className="text-xs text-gray-400 text-center mt-2">
+                Formati supportati: PDF, XLS, JPG, PNG
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5 w-full md:w-1/4 shrink-0">
+            <h3 className="font-semibold text-base text-gray-800 mb-2 flex items-center gap-2">
+              <Lock size={16} className="text-amber-600" />
+              Modalità Consultazione
+            </h3>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              Il tuo profilo ha accesso in sola lettura per la consultazione e il download dei documenti archiviati. Il caricamento e la cancellazione sono riservati agli utenti abilitati.
             </p>
           </div>
-        </div>
+        )}
 
         {/* List */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 w-full flex-1 flex flex-col h-full min-h-[400px]">
@@ -218,13 +232,15 @@ export default function ArchivioFatturazioneView() {
                           >
                             <ExternalLink size={18} />
                           </a>
-                          <button 
-                            onClick={() => handleDelete(doc.id)}
-                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors"
-                            title="Elimina"
-                          >
-                            <Trash2 size={18} />
-                          </button>
+                          {isWriter && (
+                            <button 
+                              onClick={() => handleDelete(doc.id)}
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                              title="Elimina"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

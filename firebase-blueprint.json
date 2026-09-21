@@ -7,7 +7,7 @@
       "properties": {
         "role": {
           "type": "string",
-          "enum": ["admin", "writer", "viewer"],
+          "enum": ["admin", "writer", "ticket_only", "viewer"],
           "maxLength": 20
         },
         "email": {

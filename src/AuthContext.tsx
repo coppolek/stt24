@@ -41,9 +41,10 @@ export const createAdminUserObject = (): User => {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  role: 'admin' | 'writer' | 'viewer' | 'none';
+  role: 'admin' | 'writer' | 'ticket_only' | 'viewer' | 'none';
   isAdmin: boolean;
   isWriter: boolean;
+  canCreateTicket: boolean;
   isViewer: boolean;
   setAdminSession: () => void;
 }
@@ -54,6 +55,7 @@ const AuthContext = createContext<AuthContextType>({
   role: 'none', 
   isAdmin: false, 
   isWriter: false,
+  canCreateTicket: false,
   isViewer: false,
   setAdminSession: () => {}
 });
@@ -67,7 +69,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return null;
   });
   const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState<'admin' | 'writer' | 'viewer' | 'none'>('none');
+  const [role, setRole] = useState<'admin' | 'writer' | 'ticket_only' | 'viewer' | 'none'>('none');
 
   useEffect(() => {
     const handleLogout = () => {
@@ -123,7 +125,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isCoppolek = effectiveUser?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
   const isAdmin = isCoppolek || role === 'admin';
   const isWriter = isAdmin || role === 'writer';
-  const isViewer = isWriter || role === 'viewer';
+  const canCreateTicket = isWriter || role === 'ticket_only';
+  const isViewer = isWriter || canCreateTicket || role === 'viewer';
   const effectiveRole = isAdmin ? 'admin' : role;
 
   return (
@@ -133,6 +136,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       role: effectiveRole, 
       isAdmin, 
       isWriter, 
+      canCreateTicket,
       isViewer,
       setAdminSession 
     }}>
