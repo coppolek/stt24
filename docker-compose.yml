@@ -6,6 +6,6 @@ services:
     container_name: stt24-app
     restart: unless-stopped
     ports:
-      - "${APP_PORT:-8080}:80"
+      - "${APP_PORT:-3005}:80"
     environment:
       - NODE_ENV=production
