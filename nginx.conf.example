@@ -1,0 +1,33 @@
+# Configurazione Nginx per STT24
+# Salva questo file su VPS in: /etc/nginx/sites-available/stt24
+# Poi crea il link simbolico: sudo ln -s /etc/nginx/sites-available/stt24 /etc/nginx/sites-enabled/
+
+server {
+    listen 80;
+    listen [::]:80;
+    
+    # Sostituisci con il tuo dominio o lascia l'IP della VPS
+    server_name tuodominio.it www.tuodominio.it;
+
+    # Cartella dove GitHub Actions distribuisce i file compilati (dist)
+    root /var/www/stt24/dist;
+    index index.html;
+
+    # Routing Single Page Application (SPA)
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Ottimizzazione cache per file statici
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
+        expires 1y;
+        add_header Cache-Control "public, no-transform";
+    }
+
+    # Dimensione massima file consentita per gli allegati
+    client_max_body_size 50M;
+
+    # Log Nginx
+    error_log /var/log/nginx/stt24_error.log;
+    access_log /var/log/nginx/stt24_access.log;
+}

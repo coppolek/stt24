@@ -1,0 +1,11 @@
+services:
+  stt24-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stt24-app
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      - NODE_ENV=production
