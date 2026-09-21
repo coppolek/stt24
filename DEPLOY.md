@@ -84,7 +84,11 @@ Sulla tua VPS, nella cartella del progetto:
 # Avvia il container in background e compila l'immagine
 docker compose up -d --build
 ```
-L'applicazione sarà subito attiva e raggiungibile sulla porta `80` (HTTP) della tua VPS.
+L'applicazione è configurata per essere esposta sulla porta `8080` (per non entrare in conflitto con la porta `80` di Nginx/Apache su Hostinger) e sarà raggiungibile su `http://IP_VPS:8080`.
+Se vuoi personalizzare la porta basta specificarla nel file `.env`:
+```bash
+APP_PORT=8080
+```
 
 ### B. Comandi utili Docker:
 ```bash
