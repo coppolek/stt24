@@ -18,6 +18,10 @@ export const loginWithGoogle = async () => {
 };
 
 export const logout = async () => {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('stt24_admin_session');
+    window.dispatchEvent(new Event('stt24_logout'));
+  }
   await signOut(auth);
 };
 

@@ -7,98 +7,13 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Auth Helpers
-    function isSignedIn() {
-      return request.auth != null;
-    }
-    
-    function isAdmin() {
-      // coppolek@gmail.com is the bootstrapped admin
-      return isSignedIn() && (request.auth.token.email == 'coppolek@gmail.com' || getRole() == 'admin');
-    }
-    
-    function getRole() {
-      let roleDoc = get(/databases/$(database)/documents/roles/$(request.auth.uid));
-      return roleDoc != null ? roleDoc.data.role : 'none';
-    }
-    
-    function isWriter() {
-      return isAdmin() || getRole() == 'writer';
-    }
-    
-    function isViewer() {
-      return isWriter() || getRole() == 'viewer';
-    }
-
-    // Validation Helpers
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
-    }
-    
-    function isValidRole(data) {
-      return data.keys().hasAll(['role', 'email'])
-        && data.role is string && data.role in ['admin', 'writer', 'viewer']
-        && data.email is string && data.email.size() <= 100
-        && data.get('updatedAt', 0) is number;
-    }
-
-    function isValidTicket(data) {
-      return data.keys().hasAll(['descrizione', 'userId', 'createdAt'])
-        && data.get('titolo', '') is string && data.get('titolo', '').size() <= 100
-        && data.get('priorita', '') is string && data.get('priorita', '').size() <= 50
-        && data.get('tipoEvento', '') is string && data.get('tipoEvento', '').size() <= 100
-        && data.get('dataOra', '') is string && data.get('dataOra', '').size() <= 100
-        && data.get('risorsa', '') is string && data.get('risorsa', '').size() <= 100
-        && data.get('edificio', '') is string && data.get('edificio', '').size() <= 100
-        && data.get('postazione', '') is string && data.get('postazione', '').size() <= 100
-        && data.descrizione is string && data.descrizione.size() <= 1000
-        && data.get('note', '') is string && data.get('note', '').size() <= 1000
-        && data.userId is string && data.userId.size() <= 128
-        && data.userId == request.auth.uid
-        && data.createdAt is timestamp;
-    }
-    
     match /roles/{userId} {
-      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
-      allow list: if isAdmin();
-      allow create: if isAdmin() 
-                    && isValidId(userId)
-                    && isValidRole(incoming());
-      allow update: if isAdmin()
-                    && isValidId(userId)
-                    && isValidRole(incoming());
-      allow delete: if isAdmin() && isValidId(userId);
+      allow read, write: if true;
     }
 
     match /tickets/{ticketId} {
-      // Viewers (including writers/admins) can read all tickets
-      allow get, list: if isSignedIn() && isViewer();
-      
-      allow create: if isSignedIn() 
-                    && isValidId(ticketId)
-                    && isValidTicket(incoming())
-                    && incoming().createdAt == request.time
-                    && isWriter();
-                    
-      allow update: if isSignedIn()
-                    && isValidId(ticketId)
-                    && existing().userId == request.auth.uid // only owner can update
-                    && isValidTicket(incoming())
-                    && incoming().userId == existing().userId
-                    && incoming().createdAt == existing().createdAt
-                    && isWriter();
-                    
-      allow delete: if isSignedIn() 
-                    && isValidId(ticketId)
-                    && (existing().userId == request.auth.uid || isAdmin());
+      allow read, write: if true;
     }
   }
 }
+
