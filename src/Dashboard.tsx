@@ -21,96 +21,10 @@ export interface Ticket {
   tipoEvento?: string;
   dataOra?: string;
   risorsa?: string;
-  edificio?: string;
-  postazione?: string;
   descrizione: string;
   note?: string;
   userId: string;
   createdAt: any;
-}
-
-function TicketForm() {
-  const { user, isWriter } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState({
-    titolo: '',
-    descrizione: '',
-    note: '',
-    priorita: 'Bassa'
-  });
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user || !isWriter) return;
-    setLoading(true);
-    try {
-      await addDoc(collection(db, 'tickets'), {
-        ...formData,
-        userId: user.uid,
-        createdAt: serverTimestamp()
-      });
-      setFormData({ titolo: '', descrizione: '', note: '', priorita: 'Bassa' });
-      toast.success('Ticket aggiunto con successo!');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'tickets');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (!isWriter) return null;
-
-  return (
-    <form onSubmit={handleSubmit} className="bg-white p-4 border-b border-gray-200 shadow-sm mb-4 rounded-md mx-4 mt-4 shrink-0">
-      <h3 className="text-lg font-semibold mb-3 text-[#2d325a]">Nuovo Ticket Rapido</h3>
-      <div className="flex flex-col sm:flex-row gap-4">
-        <input
-          required
-          name="titolo"
-          value={formData.titolo}
-          onChange={handleChange}
-          placeholder="Titolo Ticket"
-          className="flex-1 h-10 border border-gray-300 rounded px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781]"
-        />
-        <input
-          required
-          name="descrizione"
-          value={formData.descrizione}
-          onChange={handleChange}
-          placeholder="Breve descrizione..."
-          className="flex-1 h-10 border border-gray-300 rounded px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781]"
-        />
-        <input
-          name="note"
-          value={formData.note}
-          onChange={handleChange}
-          placeholder="Note aggiuntive (opzionale)"
-          className="flex-1 h-10 border border-gray-300 rounded px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781]"
-        />
-        <select
-          name="priorita"
-          value={formData.priorita}
-          onChange={handleChange}
-          className="h-10 border border-gray-300 rounded px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] sm:w-32 bg-white"
-        >
-          <option value="Bassa">Bassa</option>
-          <option value="Media">Media</option>
-          <option value="Alta">Alta</option>
-        </select>
-        <button 
-          type="submit" 
-          disabled={loading}
-          className="h-10 px-4 bg-[#3b4781] text-white rounded text-sm font-semibold hover:bg-[#2d325a] transition-colors shadow-sm disabled:opacity-50 whitespace-nowrap"
-        >
-          {loading ? 'Salvataggio...' : 'Crea Ticket'}
-        </button>
-      </div>
-    </form>
-  );
 }
 
 interface TicketListProps {
@@ -215,7 +129,7 @@ function TicketList({ onOpenModal }: TicketListProps) {
       return;
     }
     
-    const headers = ['ID', 'Data', 'Titolo', 'Tipo Evento', 'Priorità', 'Risorsa', 'Edificio', 'Postazione', 'Descrizione', 'Note', 'Creato Da'];
+    const headers = ['ID', 'Data', 'Titolo', 'Tipo Evento', 'Priorità', 'Risorsa', 'Descrizione', 'Note', 'Creato Da'];
     const csvRows = [headers.join(',')];
 
     filteredTickets.forEach(ticket => {
@@ -226,8 +140,6 @@ function TicketList({ onOpenModal }: TicketListProps) {
         `"${(ticket.tipoEvento || '').replace(/"/g, '""')}"`,
         `"${ticket.priorita || ''}"`,
         `"${(ticket.risorsa || '').replace(/"/g, '""')}"`,
-        `"${(ticket.edificio || '').replace(/"/g, '""')}"`,
-        `"${(ticket.postazione || '').replace(/"/g, '""')}"`,
         `"${(ticket.descrizione || '').replace(/"/g, '""')}"`,
         `"${(ticket.note || '').replace(/"/g, '""')}"`,
         `"${ticket.userId}"`
@@ -373,15 +285,13 @@ function TicketList({ onOpenModal }: TicketListProps) {
               <th className="px-4 py-3 font-medium border-b border-r border-gray-300">Risorsa</th>
               <th className="px-4 py-3 font-medium border-b border-r border-gray-300">Descrizione Registro</th>
               <th className="px-4 py-3 font-medium border-b border-r border-gray-300">Note</th>
-              <th className="px-4 py-3 font-medium border-b border-r border-gray-300">Data Evento</th>
-              <th className="px-4 py-3 font-medium border-b border-r border-gray-300">Edificio</th>
-              <th className="px-4 py-3 font-medium border-b border-gray-300">Postazione</th>
+              <th className="px-4 py-3 font-medium border-b border-gray-300">Data Evento</th>
             </tr>
           </thead>
           <tbody className="bg-white">
             {filteredTickets.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
                   Nessun registro trovato per i filtri selezionati.
                 </td>
               </tr>
@@ -413,11 +323,9 @@ function TicketList({ onOpenModal }: TicketListProps) {
                   <td className="px-4 py-3 border-r border-gray-100 text-gray-700">{ticket.risorsa || '-'}</td>
                   <td className="px-4 py-3 border-r border-gray-100 text-gray-700">{ticket.descrizione}</td>
                   <td className="px-4 py-3 border-r border-gray-100 text-gray-500 truncate max-w-[150px]" title={ticket.note || ''}>{ticket.note || '-'}</td>
-                  <td className="px-4 py-3 border-r border-gray-100 text-gray-700 whitespace-nowrap">
+                  <td className="px-4 py-3 text-gray-700 whitespace-nowrap">
                     {ticket.dataOra ? format(new Date(ticket.dataOra), 'dd/MM/yyyy HH:mm', { locale: it }) : '-'}
                   </td>
-                  <td className="px-4 py-3 border-r border-gray-100 text-gray-700">{ticket.edificio || '-'}</td>
-                  <td className="px-4 py-3 text-gray-700">{ticket.postazione || '-'}</td>
                 </tr>
               ))
             )}
@@ -549,10 +457,7 @@ export default function Dashboard() {
               </p>
             </div>
           ) : currentView === 'home' ? (
-            <>
-              <TicketForm />
-              <TicketList onOpenModal={handleOpenModal} />
-            </>
+            <TicketList onOpenModal={handleOpenModal} />
           ) : currentView === 'fatturazione' ? (
             <FatturazioneView />
           ) : (

@@ -19,8 +19,6 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
     tipoEvento: '',
     dataOra: '',
     risorsa: '',
-    edificio: '',
-    postazione: '',
     descrizione: '',
     note: '',
     titolo: '',
@@ -33,8 +31,6 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
         tipoEvento: ticketToEdit.tipoEvento || '',
         dataOra: ticketToEdit.dataOra || '',
         risorsa: ticketToEdit.risorsa || '',
-        edificio: ticketToEdit.edificio || '',
-        postazione: ticketToEdit.postazione || '',
         descrizione: ticketToEdit.descrizione || '',
         note: ticketToEdit.note || '',
         titolo: ticketToEdit.titolo || '',
@@ -45,8 +41,6 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
         tipoEvento: '',
         dataOra: '',
         risorsa: '',
-        edificio: '',
-        postazione: '',
         descrizione: '',
         note: '',
         titolo: '',
@@ -162,28 +156,6 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
               <input
                 name="risorsa"
                 value={formData.risorsa}
-                onChange={handleChange}
-                className="h-10 border border-gray-300 rounded px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent"
-              />
-            </div>
-
-            {/* Edificio */}
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold text-gray-600">Edificio</label>
-              <input
-                name="edificio"
-                value={formData.edificio}
-                onChange={handleChange}
-                className="h-10 border border-gray-300 rounded px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent"
-              />
-            </div>
-
-            {/* Postazione */}
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold text-gray-600">Postazione</label>
-              <input
-                name="postazione"
-                value={formData.postazione}
                 onChange={handleChange}
                 className="h-10 border border-gray-300 rounded px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent"
               />
