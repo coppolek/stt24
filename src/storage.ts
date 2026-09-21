@@ -40,3 +40,29 @@ export const saveTabAttachment = async (tab: string, attachment: { name: string,
 export const removeTabAttachment = async (tab: string) => {
   await del(`fatturazione_attachment_${tab}`);
 };
+
+const TABS_KEY = 'fatturazione_tabs';
+export const DEFAULT_TABS = [
+  'Acqua', 'Lettura contatori', 'Costi di gestione', 'Freddo', 
+  'Pertinenze celle-magazzini', 'Pertinenze parcheggi', 'Scarti ittici'
+];
+
+export const getFatturazioneTabs = async (): Promise<string[]> => {
+  const tabs = await get(TABS_KEY);
+  if (tabs && Array.isArray(tabs) && tabs.length > 0) {
+    return tabs;
+  }
+  return DEFAULT_TABS;
+};
+
+export const saveFatturazioneTabs = async (tabs: string[]) => {
+  await set(TABS_KEY, tabs);
+};
+
+export const renameTabAttachment = async (oldTab: string, newTab: string) => {
+  const att = await getTabAttachment(oldTab);
+  if (att) {
+    await saveTabAttachment(newTab, att);
+    await removeTabAttachment(oldTab);
+  }
+};

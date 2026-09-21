@@ -1,13 +1,43 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, File, FileText, Image as ImageIcon, X, Archive, FolderOpen } from 'lucide-react';
-import { getTabAttachment, saveTabAttachment, removeTabAttachment, saveToArchive } from './storage';
+import { Upload, File, FileText, Image as ImageIcon, X, FolderOpen, Plus, Pencil, Trash2, Check } from 'lucide-react';
+import { 
+  getTabAttachment, 
+  saveTabAttachment, 
+  removeTabAttachment, 
+  saveToArchive,
+  getFatturazioneTabs,
+  saveFatturazioneTabs,
+  renameTabAttachment,
+  DEFAULT_TABS
+} from './storage';
 
 export default function FatturazioneView() {
+  const [tabs, setTabs] = useState<string[]>(DEFAULT_TABS);
   const [activeTab, setActiveTab] = useState('Acqua');
   const [attachment, setAttachment] = useState<{ name: string, type: string, url: string, file: File } | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [customFileName, setCustomFileName] = useState('');
+  
+  // States for Tab Management
+  const [isCreatingTab, setIsCreatingTab] = useState(false);
+  const [newTabName, setNewTabName] = useState('');
+  const [editingTab, setEditingTab] = useState<string | null>(null);
+  const [editTabName, setEditTabName] = useState('');
+  const [deletingTab, setDeletingTab] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load tabs from storage on mount
+  useEffect(() => {
+    getFatturazioneTabs().then(storedTabs => {
+      if (storedTabs && storedTabs.length > 0) {
+        setTabs(storedTabs);
+        if (!storedTabs.includes(activeTab)) {
+          setActiveTab(storedTabs[0]);
+        }
+      }
+    });
+  }, []);
 
   useEffect(() => {
     let currentUrl = '';
@@ -35,10 +65,7 @@ export default function FatturazioneView() {
     if (!file) return;
     
     setPendingFile(file);
-    // Remove the extension to allow the user to type the name easily, but optionally we can keep it.
-    // Let's pre-fill with the full name for simplicity, they can edit it.
     setCustomFileName(file.name);
-    
     e.target.value = '';
   };
 
@@ -83,10 +110,68 @@ export default function FatturazioneView() {
     }
   };
 
-  const tabs = [
-    'Acqua', 'Lettura contatori', 'Costi di gestione', 'Freddo', 
-    'Pertinenze celle-magazzini', 'Pertinenze parcheggi', 'Scarti ittici'
-  ];
+  // Tab Management Actions
+  const handleCreateTab = async () => {
+    const trimmed = newTabName.trim();
+    if (!trimmed) return;
+    if (tabs.some(t => t.toLowerCase() === trimmed.toLowerCase())) {
+      alert('Esiste già una scheda con questo nome');
+      return;
+    }
+    const updatedTabs = [...tabs, trimmed];
+    setTabs(updatedTabs);
+    await saveFatturazioneTabs(updatedTabs);
+    setActiveTab(trimmed);
+    setIsCreatingTab(false);
+    setNewTabName('');
+  };
+
+  const handleStartEditTab = (tab: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingTab(tab);
+    setEditTabName(tab);
+  };
+
+  const handleRenameTab = async () => {
+    if (!editingTab) return;
+    const trimmed = editTabName.trim();
+    if (!trimmed) return;
+    if (trimmed.toLowerCase() !== editingTab.toLowerCase() && tabs.some(t => t.toLowerCase() === trimmed.toLowerCase())) {
+      alert('Esiste già una scheda con questo nome');
+      return;
+    }
+    const updatedTabs = tabs.map(t => t === editingTab ? trimmed : t);
+    setTabs(updatedTabs);
+    await saveFatturazioneTabs(updatedTabs);
+    await renameTabAttachment(editingTab, trimmed);
+    if (activeTab === editingTab) {
+      setActiveTab(trimmed);
+    }
+    setEditingTab(null);
+    setEditTabName('');
+  };
+
+  const handleStartDeleteTab = (tab: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDeletingTab(tab);
+  };
+
+  const handleDeleteTab = async () => {
+    if (!deletingTab) return;
+    if (tabs.length <= 1) {
+      alert('Deve rimanere almeno una scheda attiva.');
+      setDeletingTab(null);
+      return;
+    }
+    const updatedTabs = tabs.filter(t => t !== deletingTab);
+    setTabs(updatedTabs);
+    await saveFatturazioneTabs(updatedTabs);
+    await removeTabAttachment(deletingTab);
+    if (activeTab === deletingTab) {
+      setActiveTab(updatedTabs[0]);
+    }
+    setDeletingTab(null);
+  };
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
@@ -114,20 +199,64 @@ export default function FatturazioneView() {
         </div>
       </div>
 
-      <div className="flex overflow-x-auto bg-white border-b border-gray-200 shrink-0">
-        {tabs.map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === tab 
-                ? 'border-[#3b4781] text-[#3b4781]' 
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
+      {/* Tabs Bar with Create, Edit, Delete */}
+      <div className="flex items-center overflow-x-auto bg-white border-b border-gray-200 shrink-0 px-2">
+        <div className="flex items-center">
+          {tabs.map(tab => {
+            const isActive = activeTab === tab;
+            return (
+              <div
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`group relative flex items-center border-b-2 transition-all cursor-pointer select-none ${
+                  isActive 
+                    ? 'border-[#3b4781] text-[#3b4781] bg-blue-50/50 font-semibold' 
+                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300 hover:bg-gray-50/60'
+                }`}
+              >
+                <span className="px-3.5 py-3 text-sm whitespace-nowrap">
+                  {tab}
+                </span>
+
+                {/* Modifica & Elimina bottoni */}
+                <div className={`flex items-center pr-2 gap-0.5 transition-opacity ${
+                  isActive ? 'opacity-90' : 'opacity-0 group-hover:opacity-80'
+                }`}>
+                  <button
+                    type="button"
+                    onClick={(e) => handleStartEditTab(tab, e)}
+                    title={`Rinomina "${tab}"`}
+                    className="p-1 text-gray-400 hover:text-[#3b4781] hover:bg-gray-200/70 rounded transition-colors"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => handleStartDeleteTab(tab, e)}
+                    title={`Elimina "${tab}"`}
+                    className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Pulsante Crea Nuova Scheda */}
+        <button
+          type="button"
+          onClick={() => {
+            setIsCreatingTab(true);
+            setNewTabName('');
+          }}
+          className="flex items-center gap-1.5 px-3 py-1.5 ml-2 my-2 text-xs font-semibold text-[#3b4781] hover:text-white bg-blue-50 hover:bg-[#3b4781] border border-blue-200 hover:border-[#3b4781] rounded-md transition-all shrink-0 cursor-pointer shadow-2xs"
+          title="Aggiungi una nuova scheda"
+        >
+          <Plus size={14} />
+          <span>Nuova scheda</span>
+        </button>
       </div>
 
       <div className="flex-1 overflow-hidden flex flex-col p-6">
@@ -213,6 +342,117 @@ export default function FatturazioneView() {
           </div>
         )}
       </div>
+
+      {/* Modal Nuova Scheda */}
+      {isCreatingTab && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 flex flex-col">
+            <h3 className="text-xl font-bold text-[#2d325a] mb-2">Crea Nuova Scheda</h3>
+            <p className="text-sm text-gray-600 mb-4">Inserisci il nome per la nuova sezione di fatturazione:</p>
+            <input
+              type="text"
+              value={newTabName}
+              onChange={(e) => setNewTabName(e.target.value)}
+              placeholder="es. Energia Elettrica, TARI, Pulizie..."
+              className="w-full border border-gray-300 rounded-md px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#3b4781] mb-6 font-medium text-gray-800"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newTabName.trim()) {
+                  handleCreateTab();
+                }
+              }}
+            />
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setIsCreatingTab(false);
+                  setNewTabName('');
+                }}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-md font-medium transition-colors cursor-pointer"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleCreateTab}
+                disabled={!newTabName.trim()}
+                className="px-4 py-2 bg-[#3b4781] hover:bg-[#2d325a] text-white rounded-md font-medium transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                Crea Scheda
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Rinomina Scheda */}
+      {editingTab && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 flex flex-col">
+            <h3 className="text-xl font-bold text-[#2d325a] mb-2">Rinomina Scheda</h3>
+            <p className="text-sm text-gray-600 mb-4">Modifica il nome della sezione "{editingTab}":</p>
+            <input
+              type="text"
+              value={editTabName}
+              onChange={(e) => setEditTabName(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#3b4781] mb-6 font-medium text-gray-800"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && editTabName.trim()) {
+                  handleRenameTab();
+                }
+              }}
+            />
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setEditingTab(null);
+                  setEditTabName('');
+                }}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-md font-medium transition-colors cursor-pointer"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleRenameTab}
+                disabled={!editTabName.trim()}
+                className="px-4 py-2 bg-[#3b4781] hover:bg-[#2d325a] text-white rounded-md font-medium transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                Salva Modifiche
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Elimina Scheda */}
+      {deletingTab && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 flex flex-col">
+            <h3 className="text-xl font-bold text-red-600 mb-2">Elimina Scheda</h3>
+            <p className="text-sm text-gray-600 mb-6">
+              Sei sicuro di voler eliminare la scheda <span className="font-semibold text-gray-800">"{deletingTab}"</span>?
+              <br />
+              <span className="text-xs text-gray-500 mt-1 block">
+                Se è presente un documento caricato in questa scheda, verrà anch'esso rimosso.
+              </span>
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setDeletingTab(null)}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-md font-medium transition-colors cursor-pointer"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleDeleteTab}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md font-medium transition-colors cursor-pointer"
+              >
+                Elimina Scheda
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Rinomina File */}
       {pendingFile && (
