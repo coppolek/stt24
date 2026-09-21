@@ -173,7 +173,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isWriter = isAdmin || role === 'writer' || role === 'ticket_manager';
   // Chi può gestire i ticket con Presa in carico / Chiusa
   const canManageTicketStatus = isAdmin || role === 'writer' || role === 'ticket_manager';
-  const canCreateTicket = isWriter || role === 'ticket_only';
+  // L'utente che gestisce i ticket (ticket_manager) NON può aprire nuovi ticket, ma deve solo gestirli
+  const canCreateTicket = (isAdmin || role === 'writer' || role === 'ticket_only') && role !== 'ticket_manager';
   const isViewer = isWriter || canCreateTicket || role === 'viewer';
   const effectiveRole = isAdmin ? 'admin' : role;
 

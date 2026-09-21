@@ -12,7 +12,8 @@ interface TicketModalProps {
 }
 
 export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketModalProps) {
-  const { user, canManageTicketStatus } = useAuth();
+  const { user, canManageTicketStatus, canCreateTicket, role, isAdmin } = useAuth();
+  const isTicketManagerOnly = role === 'ticket_manager' && !isAdmin;
   const [loading, setLoading] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -57,6 +58,29 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
 
   if (!isOpen) return null;
 
+  if (!ticketToEdit && !canCreateTicket) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div className="bg-white rounded-lg shadow-2xl w-full max-w-md p-6 text-center">
+          <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-3">
+            <X size={24} />
+          </div>
+          <h3 className="text-lg font-bold text-gray-800 mb-2">Apertura Ticket non consentita</h3>
+          <p className="text-sm text-gray-600 mb-5 leading-relaxed">
+            Il tuo ruolo consente esclusivamente la <strong>gestione dei ticket</strong> (presa in carico, risposta fornitore, soluzione e chiusura). Non è consentita l'apertura o creazione di nuovi ticket.
+          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-5 py-2 bg-[#3b4781] hover:bg-[#2d325a] text-white rounded-md text-sm font-semibold transition-colors"
+          >
+            Chiudi
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
@@ -65,6 +89,11 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
     e.preventDefault();
     if (!user) return;
     
+    if (!ticketToEdit && !canCreateTicket) {
+      toast.error('Non hai i permessi per aprire nuovi ticket');
+      return;
+    }
+
     setLoading(true);
     try {
       const payload: any = {
@@ -83,7 +112,7 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
           formData.stato === 'Chiusa' 
             ? 'Ticket chiuso con successo!' 
             : formData.stato === 'Presa in carico'
-            ? 'Ticket preso in carico!'
+            ? 'Ticket preso in carico e Risposta salvata!' 
             : 'Ticket aggiornato!'
         );
       } else {
@@ -106,15 +135,36 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Modal Header */}
-        <div className="px-6 py-4 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-gray-800">{ticketToEdit ? 'Modifica Registro' : 'Nuovo Registro Giornaliero'}</h2>
+        <div className="px-6 py-4 flex items-center justify-between border-b border-gray-100">
+          <div>
+            <h2 className="text-xl font-bold text-gray-800">
+              {ticketToEdit 
+                ? (isTicketManagerOnly ? 'Gestione Ticket' : 'Modifica Registro') 
+                : 'Nuovo Registro Giornaliero'}
+            </h2>
+            {isTicketManagerOnly && ticketToEdit && (
+              <p className="text-xs text-amber-700 font-medium mt-0.5">
+                Ruolo Gestore Ticket: aggiorna stato, risposta del fornitore e soluzione
+              </p>
+            )}
+          </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X size={24} />
           </button>
         </div>
 
         {/* Modal Body */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-6 py-2 space-y-5">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+          {isTicketManagerOnly && ticketToEdit && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900 flex items-start gap-2">
+              <span className="text-base leading-none">ℹ️</span>
+              <div>
+                <strong className="block font-semibold mb-0.5">Segnalazione in consultazione</strong>
+                I dettagli iniziali inseriti dal richiedente sono di sola lettura. Puoi gestire la <strong>Risposta del fornitore</strong>, modificare lo <strong>Stato</strong> e registrare la <strong>Soluzione / Note operative</strong>.
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             
             {/* Titolo e Priorità (aggiunti per edit) */}
@@ -122,18 +172,24 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
               <label className="text-xs font-semibold text-gray-600">Titolo</label>
               <input
                 name="titolo"
+                disabled={isTicketManagerOnly}
                 value={formData.titolo}
                 onChange={handleChange}
-                className="h-10 border border-gray-300 rounded px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent"
+                className={`h-10 border border-gray-300 rounded px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent ${
+                  isTicketManagerOnly ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
+                }`}
               />
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-xs font-semibold text-gray-600">Priorità</label>
               <select
                 name="priorita"
+                disabled={isTicketManagerOnly}
                 value={formData.priorita}
                 onChange={handleChange}
-                className="h-10 border border-gray-300 rounded px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent bg-white"
+                className={`h-10 border border-gray-300 rounded px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent bg-white ${
+                  isTicketManagerOnly ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
+                }`}
               >
                 <option value="Bassa">Bassa</option>
                 <option value="Media">Media</option>
@@ -147,13 +203,18 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
               <div className="flex items-center gap-2">
                 <input
                   name="tipoEvento"
+                  disabled={isTicketManagerOnly}
                   value={formData.tipoEvento}
                   onChange={handleChange}
-                  className="flex-1 h-10 border border-gray-300 rounded px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent"
+                  className={`flex-1 h-10 border border-gray-300 rounded px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent ${
+                    isTicketManagerOnly ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
+                  }`}
                 />
-                <button type="button" className="w-10 h-10 rounded-full bg-[#3b4781] text-white flex items-center justify-center hover:bg-[#2d325a] transition-colors shrink-0 shadow-sm">
-                  <Plus size={20} />
-                </button>
+                {!isTicketManagerOnly && (
+                  <button type="button" className="w-10 h-10 rounded-full bg-[#3b4781] text-white flex items-center justify-center hover:bg-[#2d325a] transition-colors shrink-0 shadow-sm">
+                    <Plus size={20} />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -163,20 +224,26 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
               <input
                 type="datetime-local"
                 name="dataOra"
+                disabled={isTicketManagerOnly}
                 value={formData.dataOra}
                 onChange={handleChange}
-                className="h-10 border border-gray-300 rounded px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent"
+                className={`h-10 border border-gray-300 rounded px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent ${
+                  isTicketManagerOnly ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
+                }`}
               />
             </div>
 
             {/* Risorsa */}
             <div className="flex flex-col gap-1 md:col-span-2">
-              <label className="text-xs font-semibold text-gray-600">Risorsa</label>
+              <label className="text-xs font-semibold text-gray-600">Risorsa / Fornitore</label>
               <input
                 name="risorsa"
+                disabled={isTicketManagerOnly}
                 value={formData.risorsa}
                 onChange={handleChange}
-                className="h-10 border border-gray-300 rounded px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent"
+                className={`h-10 border border-gray-300 rounded px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent ${
+                  isTicketManagerOnly ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
+                }`}
               />
             </div>
 
@@ -185,11 +252,14 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
               <label className="text-xs font-semibold text-gray-600">Descrizione Evento *</label>
               <textarea
                 required
+                disabled={isTicketManagerOnly}
                 name="descrizione"
                 value={formData.descrizione}
                 onChange={handleChange}
                 rows={3}
-                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent resize-y"
+                className={`w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent resize-y ${
+                  isTicketManagerOnly ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : ''
+                }`}
               />
             </div>
 
@@ -314,7 +384,7 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
               className="px-5 py-2 text-sm font-semibold text-white bg-[#3b4781] hover:bg-[#2d325a] rounded shadow-sm transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {loading && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-              {ticketToEdit ? 'SALVA MODIFICHE' : 'INSERISCI'}
+              {ticketToEdit ? (isTicketManagerOnly ? 'SALVA GESTIONE TICKET' : 'SALVA MODIFICHE') : 'INSERISCI'}
             </button>
           </div>
         </form>

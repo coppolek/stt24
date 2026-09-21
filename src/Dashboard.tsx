@@ -37,7 +37,7 @@ interface TicketListProps {
 }
 
 function TicketList({ onOpenModal }: TicketListProps) {
-  const { user, isWriter, canCreateTicket, canManageTicketStatus, isAdmin } = useAuth();
+  const { user, isWriter, canCreateTicket, canManageTicketStatus, isAdmin, role } = useAuth();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [priorityFilter, setPriorityFilter] = useState('Tutte');
   const [statusFilter, setStatusFilter] = useState('Tutti');
@@ -293,6 +293,12 @@ function TicketList({ onOpenModal }: TicketListProps) {
     return ticket && (ticket.userId === user?.uid || canManageTicketStatus || isWriter || isAdmin);
   });
 
+  // Calculate if the user can delete the selected items (ticket_manager can NOT delete tickets)
+  const canDeleteSelected = Array.from(selectedTickets).every((id: string) => {
+    const ticket = tickets.find(t => t.id === id);
+    return ticket && (ticket.userId === user?.uid || isAdmin) && role !== 'ticket_manager';
+  });
+
   return (
     <div className="bg-white shadow-sm border border-gray-200 flex-1 flex flex-col min-h-0 mx-4 mb-4 rounded-md">
       {/* Header & Toolbar */}
@@ -328,16 +334,16 @@ function TicketList({ onOpenModal }: TicketListProps) {
                 onClick={handleEdit}
                 disabled={selectedTickets.size !== 1 || !canModifySelected}
                 className={`w-10 h-10 rounded-full text-white flex items-center justify-center transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${(selectedTickets.size === 1 && canModifySelected) ? 'bg-[#3b4781] hover:bg-[#2d325a]' : 'bg-gray-400'}`}
-                title="Modifica"
+                title={role === 'ticket_manager' ? 'Gestisci Ticket (Risposta fornitore, Stato, Soluzione)' : 'Modifica'}
               >
                 <Edit size={18} />
               </button>
             )}
-            {isWriter && (
+            {(isAdmin || (isWriter && role !== 'ticket_manager')) && (
               <button 
                 onClick={handleDelete}
-                disabled={selectedTickets.size === 0 || !canModifySelected}
-                className={`w-10 h-10 rounded-full text-white flex items-center justify-center transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${(selectedTickets.size > 0 && canModifySelected) ? 'bg-red-500 hover:bg-red-600' : 'bg-gray-400'}`}
+                disabled={selectedTickets.size === 0 || !canDeleteSelected}
+                className={`w-10 h-10 rounded-full text-white flex items-center justify-center transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${(selectedTickets.size > 0 && canDeleteSelected) ? 'bg-red-500 hover:bg-red-600' : 'bg-gray-400'}`}
                 title="Elimina"
               >
                 <Trash2 size={18} />

@@ -41,19 +41,14 @@ export default function ArchivioFatturazioneView() {
     const file = e.target.files?.[0];
     if (!file) return;
     
-    // Basic validation
-    if (!relatedId.trim()) {
-      alert('Inserire un ID Ditta o un riferimento utente prima di caricare il file.');
-      e.target.value = '';
-      return;
-    }
+    const chosenName = relatedId.trim() || file.name;
     
     const newDoc: ArchivedDocument = {
       id: Math.random().toString(36).substr(2, 9),
       fileName: file.name,
       fileType: file.type,
       file,
-      relatedId: relatedId.trim(),
+      relatedId: chosenName,
       description: description.trim(),
       uploadDate: new Date()
     };
@@ -104,7 +99,7 @@ export default function ArchivioFatturazioneView() {
       <div className="bg-white border-b border-gray-200 p-6 shadow-sm">
         <h2 className="text-2xl font-bold text-[#2d325a] mb-2">Archivio Documenti Fatturazione</h2>
         <p className="text-gray-500">
-          Carica e associa fatture, ricevute o estratti conto alle ditte. I file sono salvati localmente per la sessione corrente.
+          Carica e archivia fatture, ricevute o documenti di lavorazione. I file sono salvati localmente per la sessione corrente.
         </p>
       </div>
 
@@ -119,12 +114,12 @@ export default function ArchivioFatturazioneView() {
             
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">ID Ditta / Utente *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nome file</label>
                 <input 
                   type="text" 
                   value={relatedId}
                   onChange={e => setRelatedId(e.target.value)}
-                  placeholder="Es. 04532360403"
+                  placeholder="Es. Fattura_Fornitore_01 (facoltativo)"
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781]"
                 />
               </div>
@@ -149,8 +144,7 @@ export default function ArchivioFatturazioneView() {
               
               <button 
                 onClick={() => fileInputRef.current?.click()}
-                disabled={!relatedId.trim()}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#3b4781] text-white rounded-md text-sm font-medium hover:bg-[#2d325a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#3b4781] text-white rounded-md text-sm font-medium hover:bg-[#2d325a] transition-colors shadow-sm"
               >
                 <File size={16} />
                 Seleziona e Carica File
@@ -180,7 +174,7 @@ export default function ArchivioFatturazioneView() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
               <input 
                 type="text" 
-                placeholder="Cerca per ditta, nome file..." 
+                placeholder="Cerca per nome file, descrizione..." 
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-9 pr-4 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] w-64"
@@ -194,7 +188,6 @@ export default function ArchivioFatturazioneView() {
                 <tr>
                   <th className="px-4 py-3 font-semibold">Tipo</th>
                   <th className="px-4 py-3 font-semibold">Nome File</th>
-                  <th className="px-4 py-3 font-semibold">ID Ditta</th>
                   <th className="px-4 py-3 font-semibold">Descrizione</th>
                   <th className="px-4 py-3 font-semibold">Data Caricamento</th>
                   <th className="px-4 py-3 font-semibold text-right">Azioni</th>
@@ -207,13 +200,11 @@ export default function ArchivioFatturazioneView() {
                       <td className="px-4 py-3 w-12 text-center">
                         {getFileIcon(doc.fileType, doc.fileName)}
                       </td>
-                      <td className="px-4 py-3 font-medium text-gray-900 truncate max-w-[200px]" title={doc.fileName}>
-                        {doc.fileName}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded-md font-mono text-xs font-bold border border-blue-100">
-                          {doc.relatedId}
-                        </span>
+                      <td className="px-4 py-3 font-medium text-gray-900 truncate max-w-[240px]" title={doc.relatedId || doc.fileName}>
+                        <span className="font-semibold text-gray-800">{doc.relatedId || doc.fileName}</span>
+                        {doc.relatedId && doc.fileName && doc.relatedId !== doc.fileName && (
+                          <span className="block text-xs text-gray-400 font-mono">{doc.fileName}</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-gray-600 truncate max-w-[150px]" title={doc.description}>
                         {doc.description || '-'}
@@ -247,7 +238,7 @@ export default function ArchivioFatturazioneView() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={5} className="px-4 py-12 text-center text-gray-500">
                       <div className="flex flex-col items-center justify-center">
                         <FolderOpen size={48} className="text-gray-300 mb-3" />
                         <p className="text-base font-medium text-gray-600">Nessun documento in archivio</p>

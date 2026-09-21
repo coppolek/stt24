@@ -371,7 +371,7 @@ export default function RoleManager({ onClose }: { onClose: () => void }) {
               >
                 <option value="viewer">Viewer (Solo Lettura)</option>
                 <option value="ticket_only">Operatore Ticket (Crea Ticket + Sola Lettura Altre Sezioni)</option>
-                <option value="ticket_manager">Gestore Ticket (Presa in carico / Chiusura + Scrittura Fatturazione e Archivio)</option>
+                <option value="ticket_manager">Gestore Ticket (Solo Gestione Ticket - No Apertura + Scrittura Fatture e Archivio)</option>
                 <option value="writer">Writer (Lettura + Scrittura Completa)</option>
                 <option value="admin">Admin (Tutti i permessi)</option>
               </select>
@@ -411,7 +411,7 @@ export default function RoleManager({ onClose }: { onClose: () => void }) {
               >
                 <option value="viewer">Viewer (Solo Lettura)</option>
                 <option value="ticket_only">Operatore Ticket (Crea Ticket + Sola Lettura Altre Sezioni)</option>
-                <option value="ticket_manager">Gestore Ticket (Presa in carico / Chiusura + Scrittura Fatturazione e Archivio)</option>
+                <option value="ticket_manager">Gestore Ticket (Solo Gestione Ticket - No Apertura + Scrittura Fatture e Archivio)</option>
                 <option value="writer">Writer (Lettura + Scrittura Completa)</option>
                 <option value="admin">Admin (Tutti i permessi)</option>
               </select>
