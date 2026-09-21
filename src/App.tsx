@@ -5,7 +5,8 @@
 
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './AuthContext';
-import { loginWithEmail } from './firebase';
+import { loginWithEmail, auth } from './firebase';
+import { sendPasswordResetEmail } from 'firebase/auth';
 import Dashboard from './Dashboard';
 import { LogIn } from 'lucide-react';
 import { toast } from 'react-hot-toast';
@@ -16,6 +17,21 @@ function AppContent() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  const handleForgotPassword = async () => {
+    const cleanEmail = email.trim();
+    if (!cleanEmail) {
+      toast.error('Inserisci prima il tuo indirizzo email nel campo sopra.');
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, cleanEmail);
+      toast.success(`Email di ripristino password inviata a ${cleanEmail}!`);
+    } catch (err: any) {
+      console.warn('Errore reset password login:', err);
+      toast.error("Errore durante l'invio dell'email di ripristino.");
+    }
+  };
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,6 +98,15 @@ function AppContent() {
               onChange={e => setPassword(e.target.value)}
               className="w-full border border-gray-300 rounded-md px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781]"
             />
+            <div className="flex justify-end -mt-2">
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                className="text-xs text-[#3b4781] hover:text-[#2d325a] hover:underline"
+              >
+                Password dimenticata?
+              </button>
+            </div>
             <button
               type="submit"
               disabled={isLoggingIn}

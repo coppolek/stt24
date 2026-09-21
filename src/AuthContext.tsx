@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, collection, setDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
 
 export const ADMIN_EMAIL = 'coppolek@gmail.com';
@@ -38,13 +38,16 @@ export const createAdminUserObject = (): User => {
   } as unknown as User;
 };
 
+export type UserRole = 'admin' | 'writer' | 'ticket_manager' | 'ticket_only' | 'viewer' | 'none';
+
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  role: 'admin' | 'writer' | 'ticket_only' | 'viewer' | 'none';
+  role: UserRole;
   isAdmin: boolean;
   isWriter: boolean;
   canCreateTicket: boolean;
+  canManageTicketStatus: boolean;
   isViewer: boolean;
   setAdminSession: () => void;
 }
@@ -56,6 +59,7 @@ const AuthContext = createContext<AuthContextType>({
   isAdmin: false, 
   isWriter: false,
   canCreateTicket: false,
+  canManageTicketStatus: false,
   isViewer: false,
   setAdminSession: () => {}
 });
@@ -69,7 +73,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return null;
   });
   const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState<'admin' | 'writer' | 'ticket_only' | 'viewer' | 'none'>('none');
+  const [role, setRole] = useState<UserRole>('none');
 
   useEffect(() => {
     const handleLogout = () => {
@@ -96,10 +100,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (currentUser) {
-        // Fetch role
-        unsubscribeRole = onSnapshot(doc(db, 'roles', currentUser.uid), (docSnap) => {
-          if (docSnap.exists()) {
-            setRole(docSnap.data().role as any);
+        const cleanEmail = currentUser.email?.trim().toLowerCase();
+
+        // Ascolta in tempo reale la collezione roles:
+        // Supporta il riconoscimento del ruolo tramite UID, ID email o campo email nel record
+        unsubscribeRole = onSnapshot(collection(db, 'roles'), (snapshot) => {
+          let matchedRole: UserRole | null = null;
+          let matchedDocId = '';
+
+          // 1. Cerca per UID esatto
+          const docByUid = snapshot.docs.find(d => d.id === currentUser.uid);
+          if (docByUid?.data()?.role) {
+            matchedRole = docByUid.data().role as any;
+            matchedDocId = docByUid.id;
+          }
+
+          // 2. Cerca per ID documento uguale all'email
+          if (!matchedRole && cleanEmail) {
+            const docByEmailId = snapshot.docs.find(d => d.id.toLowerCase() === cleanEmail);
+            if (docByEmailId?.data()?.role) {
+              matchedRole = docByEmailId.data().role as any;
+              matchedDocId = docByEmailId.id;
+            }
+          }
+
+          // 3. Cerca per campo email dentro il documento
+          if (!matchedRole && cleanEmail) {
+            const docByField = snapshot.docs.find(d => d.data()?.email?.trim().toLowerCase() === cleanEmail);
+            if (docByField?.data()?.role) {
+              matchedRole = docByField.data().role as any;
+              matchedDocId = docByField.id;
+            }
+          }
+
+          if (matchedRole) {
+            setRole(matchedRole);
+            // Se il ruolo era registrato sotto l'email o un ID personalizzato, salviamo/aggiorniamo anche per currentUser.uid
+            if (currentUser.uid && matchedDocId && matchedDocId !== currentUser.uid) {
+              setDoc(doc(db, 'roles', currentUser.uid), {
+                role: matchedRole,
+                email: cleanEmail || '',
+                updatedAt: Date.now()
+              }, { merge: true }).catch(err => {
+                console.warn('Auto-sync role UID non riuscito:', err);
+              });
+            }
           } else {
             setRole('none');
           }
@@ -124,7 +169,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const effectiveUser = user || customAdminUser;
   const isCoppolek = effectiveUser?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
   const isAdmin = isCoppolek || role === 'admin';
-  const isWriter = isAdmin || role === 'writer';
+  // Chi ha il ruolo ticket_manager o writer o admin può leggere e scrivere le altre due sezioni (Fatturazione e Archivio)
+  const isWriter = isAdmin || role === 'writer' || role === 'ticket_manager';
+  // Chi può gestire i ticket con Presa in carico / Chiusa
+  const canManageTicketStatus = isAdmin || role === 'writer' || role === 'ticket_manager';
   const canCreateTicket = isWriter || role === 'ticket_only';
   const isViewer = isWriter || canCreateTicket || role === 'viewer';
   const effectiveRole = isAdmin ? 'admin' : role;
@@ -137,6 +185,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isAdmin, 
       isWriter, 
       canCreateTicket,
+      canManageTicketStatus,
       isViewer,
       setAdminSession 
     }}>

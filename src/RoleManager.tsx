@@ -1,10 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import { collection, query, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType, firebaseConfig } from './firebase';
+import { auth, db, handleFirestoreError, OperationType, firebaseConfig } from './firebase';
 import { initializeApp, deleteApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { 
+  getAuth, 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  signOut,
+  sendPasswordResetEmail,
+  updatePassword 
+} from 'firebase/auth';
 import { toast } from 'react-hot-toast';
+import { KeyRound, Mail, Send, Lock, X } from 'lucide-react';
 
 export default function RoleManager({ onClose }: { onClose: () => void }) {
   const { user, isAdmin } = useAuth();
@@ -21,6 +29,13 @@ export default function RoleManager({ onClose }: { onClose: () => void }) {
   const [createPassword, setCreatePassword] = useState('');
   const [createRole, setCreateRole] = useState('viewer');
   const [creatingUser, setCreatingUser] = useState(false);
+
+  // Modal Gestione Password
+  const [passwordModalUser, setPasswordModalUser] = useState<{ id: string, email: string } | null>(null);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [currentPasswordInput, setCurrentPasswordInput] = useState('');
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [isSendingResetEmail, setIsSendingResetEmail] = useState(false);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -53,14 +68,7 @@ export default function RoleManager({ onClose }: { onClose: () => void }) {
     let targetUid = newUserId.trim();
     if (!targetUid) {
       const match = users.find(u => u.email?.toLowerCase() === cleanEmail);
-      if (match) {
-        targetUid = match.id;
-      }
-    }
-
-    if (!targetUid) {
-      toast.error('Specificare lo User UID oppure selezionare un utente dall\'elenco con "Modifica".');
-      return;
+      targetUid = match ? match.id : cleanEmail;
     }
 
     try {
@@ -69,10 +77,21 @@ export default function RoleManager({ onClose }: { onClose: () => void }) {
         email: cleanEmail,
         updatedAt: Date.now()
       }, { merge: true });
-      refreshList();
+
+      // Se esistono altri record collegati alla stessa email (es. salvati per ID e per email), aggiornali tutti
+      const duplicateMatches = users.filter(u => u.email?.toLowerCase() === cleanEmail && u.id !== targetUid);
+      for (const dup of duplicateMatches) {
+        await setDoc(doc(db, 'roles', dup.id), {
+          role: newRole,
+          email: cleanEmail,
+          updatedAt: Date.now()
+        }, { merge: true });
+      }
+
+      await refreshList();
       setNewUserId('');
       setNewEmail('');
-      toast.success('Ruolo assegnato con successo!');
+      toast.success(`Ruolo "${newRole}" assegnato con successo a ${cleanEmail}!`);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'roles');
     }
@@ -206,6 +225,113 @@ export default function RoleManager({ onClose }: { onClose: () => void }) {
     toast('Puoi ora modificare il ruolo nel modulo in alto.', { icon: '✍️' });
   };
 
+  const handleSendResetEmail = async (targetEmail: string) => {
+    const cleanEmail = targetEmail.trim();
+    if (!cleanEmail) {
+      toast.error('Indirizzo email non valido.');
+      return;
+    }
+    setIsSendingResetEmail(true);
+    try {
+      await sendPasswordResetEmail(auth, cleanEmail);
+      const userInList = users.find(u => u.email?.toLowerCase() === cleanEmail.toLowerCase());
+      if (userInList) {
+        await setDoc(doc(db, 'roles', userInList.id), {
+          lastPasswordResetSentAt: Date.now()
+        }, { merge: true });
+      }
+      toast.success(`Email di ripristino inviata a ${cleanEmail}! L'utente riceverà un link per impostare la nuova password.`);
+    } catch (error: any) {
+      console.error('Errore invio reset password:', error);
+      if (error?.code === 'auth/user-not-found') {
+        toast.error('Nessun utente trovato in Firebase Authentication con questa email.');
+      } else {
+        toast.error("Errore durante l'invio dell'email: " + (error?.message || 'Errore sconosciuto'));
+      }
+    } finally {
+      setIsSendingResetEmail(false);
+    }
+  };
+
+  const handleChangePasswordDirectly = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passwordModalUser) return;
+    if (!newPasswordInput.trim() || newPasswordInput.length < 6) {
+      toast.error('La nuova password deve contenere almeno 6 caratteri.');
+      return;
+    }
+
+    setIsUpdatingPassword(true);
+    const targetEmail = passwordModalUser.email.trim();
+    const isCurrentUser = user?.email?.toLowerCase() === targetEmail.toLowerCase();
+
+    // Caso 1: L'amministratore sta aggiornando la propria password
+    if (isCurrentUser) {
+      try {
+        if (auth.currentUser) {
+          await updatePassword(auth.currentUser, newPasswordInput);
+          toast.success('La tua password è stata aggiornata con successo!');
+          setPasswordModalUser(null);
+          setNewPasswordInput('');
+          setCurrentPasswordInput('');
+        } else {
+          toast.error('Sessione utente non valida.');
+        }
+      } catch (error: any) {
+        console.error('Errore cambio password admin:', error);
+        if (error?.code === 'auth/requires-recent-login') {
+          toast.error('Per motivi di sicurezza, effettua un nuovo accesso prima di modificare la tua password.');
+        } else {
+          toast.error('Errore aggiornamento password: ' + (error?.message || 'Errore'));
+        }
+      } finally {
+        setIsUpdatingPassword(false);
+      }
+      return;
+    }
+
+    // Caso 2: Aggiornamento diretto per altro utente
+    if (!currentPasswordInput.trim()) {
+      toast.error("Inserisci la password attuale/temporanea dell'utente, oppure clicca su \"Invia Link di Reset via Email\" per reimpostarla.");
+      setIsUpdatingPassword(false);
+      return;
+    }
+
+    let secondaryApp: any = null;
+    try {
+      const appName = `PwdReset_${Date.now()}`;
+      secondaryApp = initializeApp(firebaseConfig, appName);
+      const secondaryAuth = getAuth(secondaryApp);
+
+      // Autentica come l'utente specificato
+      const creds = await signInWithEmailAndPassword(secondaryAuth, targetEmail, currentPasswordInput);
+      if (creds.user) {
+        await updatePassword(creds.user, newPasswordInput);
+        await signOut(secondaryAuth);
+        toast.success(`Password di ${targetEmail} aggiornata con successo!`);
+        setPasswordModalUser(null);
+        setNewPasswordInput('');
+        setCurrentPasswordInput('');
+      }
+    } catch (error: any) {
+      console.error('Errore aggiornamento password utente:', error);
+      if (error?.code === 'auth/wrong-password' || error?.code === 'auth/invalid-credential') {
+        toast.error('Password attuale non corretta. Puoi invece inviare il link di reset tramite il pulsante blu sopra.');
+      } else {
+        toast.error("Errore durante l'aggiornamento della password: " + (error?.message || 'Verifica le credenziali.'));
+      }
+    } finally {
+      if (secondaryApp) {
+        try {
+          await deleteApp(secondaryApp);
+        } catch (delErr) {
+          console.warn('Errore pulizia secondary app:', delErr);
+        }
+      }
+      setIsUpdatingPassword(false);
+    }
+  };
+
   if (!isAdmin) return null;
 
   return (
@@ -245,6 +371,7 @@ export default function RoleManager({ onClose }: { onClose: () => void }) {
               >
                 <option value="viewer">Viewer (Solo Lettura)</option>
                 <option value="ticket_only">Operatore Ticket (Crea Ticket + Sola Lettura Altre Sezioni)</option>
+                <option value="ticket_manager">Gestore Ticket (Presa in carico / Chiusura + Scrittura Fatturazione e Archivio)</option>
                 <option value="writer">Writer (Lettura + Scrittura Completa)</option>
                 <option value="admin">Admin (Tutti i permessi)</option>
               </select>
@@ -284,6 +411,7 @@ export default function RoleManager({ onClose }: { onClose: () => void }) {
               >
                 <option value="viewer">Viewer (Solo Lettura)</option>
                 <option value="ticket_only">Operatore Ticket (Crea Ticket + Sola Lettura Altre Sezioni)</option>
+                <option value="ticket_manager">Gestore Ticket (Presa in carico / Chiusura + Scrittura Fatturazione e Archivio)</option>
                 <option value="writer">Writer (Lettura + Scrittura Completa)</option>
                 <option value="admin">Admin (Tutti i permessi)</option>
               </select>
@@ -301,7 +429,7 @@ export default function RoleManager({ onClose }: { onClose: () => void }) {
                 <th className="px-4 py-2 border-b">Email</th>
                 <th className="px-4 py-2 border-b">UID</th>
                 <th className="px-4 py-2 border-b">Ruolo</th>
-                <th className="px-4 py-2 border-b w-20">Azioni</th>
+                <th className="px-4 py-2 border-b text-center">Gestione Password & Azioni</th>
               </tr>
             </thead>
             <tbody>
@@ -312,11 +440,13 @@ export default function RoleManager({ onClose }: { onClose: () => void }) {
               ) : (
                 users.map(u => (
                   <tr key={u.id} className="border-b hover:bg-gray-50">
-                    <td className="px-4 py-2">{u.email}</td>
+                    <td className="px-4 py-2 font-medium text-gray-800">{u.email}</td>
                     <td className="px-4 py-2 text-xs text-gray-400 font-mono">{u.id}</td>
                     <td className="px-4 py-2 font-medium text-xs">
                       {u.role === 'ticket_only' ? (
                         <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold uppercase">Operatore Ticket</span>
+                      ) : u.role === 'ticket_manager' ? (
+                        <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold uppercase">Gestore Ticket & Spese</span>
                       ) : u.role === 'writer' ? (
                         <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-semibold uppercase">Writer</span>
                       ) : u.role === 'admin' ? (
@@ -325,19 +455,35 @@ export default function RoleManager({ onClose }: { onClose: () => void }) {
                         <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700 font-semibold uppercase">{u.role || 'Viewer'}</span>
                       )}
                     </td>
-                    <td className="px-4 py-2 flex gap-3">
-                      <button 
-                        onClick={() => handleEditClick(u)}
-                        className="text-[#3b4781] hover:text-[#2d325a] text-xs font-semibold"
-                      >
-                        Modifica
-                      </button>
-                      <button 
-                        onClick={() => handleRemoveRole(u.id)}
-                        className="text-red-500 hover:text-red-700 text-xs font-semibold"
-                      >
-                        Rimuovi
-                      </button>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center justify-center gap-2">
+                        <button 
+                          onClick={() => {
+                            setPasswordModalUser(u);
+                            setNewPasswordInput('');
+                            setCurrentPasswordInput('');
+                          }}
+                          className="px-2.5 py-1 text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs"
+                          title="Cambia o Invia Reset Password"
+                        >
+                          <KeyRound size={13} className="text-amber-600" />
+                          Password
+                        </button>
+                        <button 
+                          onClick={() => handleEditClick(u)}
+                          className="px-2 py-1 text-[#3b4781] hover:bg-blue-50 rounded text-xs font-medium transition-colors"
+                          title="Modifica Ruolo"
+                        >
+                          Ruolo
+                        </button>
+                        <button 
+                          onClick={() => handleRemoveRole(u.id)}
+                          className="px-2 py-1 text-red-500 hover:bg-red-50 rounded text-xs font-medium transition-colors"
+                          title="Rimuovi Ruolo"
+                        >
+                          Rimuovi
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -346,6 +492,118 @@ export default function RoleManager({ onClose }: { onClose: () => void }) {
           </table>
         </div>
       </div>
+
+      {/* Modal Gestione Password Utente */}
+      {passwordModalUser && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-2xs p-4">
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full p-6 flex flex-col border border-gray-200 animate-in fade-in duration-150">
+            <div className="flex justify-between items-start mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                  <KeyRound size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900 leading-tight">Gestione Password</h3>
+                  <p className="text-xs text-gray-500 font-mono mt-0.5 break-all">{passwordModalUser.email}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  setPasswordModalUser(null);
+                  setNewPasswordInput('');
+                  setCurrentPasswordInput('');
+                }}
+                className="text-gray-400 hover:text-gray-700 font-bold p-1 rounded-md"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-sm">
+              {/* Opzione 1: Invio Link di Reset via Email */}
+              <div className="bg-blue-50/80 border border-blue-200 rounded-lg p-3.5">
+                <div className="flex items-center gap-2 font-semibold text-blue-900 mb-1 text-xs uppercase tracking-wide">
+                  <Mail size={15} className="text-blue-600" />
+                  <span>Metodo 1: Invio Link Reset via Email</span>
+                </div>
+                <p className="text-xs text-blue-700 mb-3 leading-relaxed">
+                  Invia un'email da Firebase con il link protetto che consente all'utente di scegliere una nuova password in autonomia.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleSendResetEmail(passwordModalUser.email)}
+                  disabled={isSendingResetEmail}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-[#3b4781] hover:bg-[#2d325a] text-white text-xs font-semibold rounded-md transition-colors disabled:opacity-50"
+                >
+                  <Send size={13} />
+                  {isSendingResetEmail ? 'Invio in corso...' : `Invia Link di Reset a ${passwordModalUser.email}`}
+                </button>
+              </div>
+
+              {/* Separatore */}
+              <div className="relative flex py-0.5 items-center">
+                <div className="flex-grow border-t border-gray-200"></div>
+                <span className="flex-shrink mx-3 text-gray-400 text-xs uppercase font-medium">oppure</span>
+                <div className="flex-grow border-t border-gray-200"></div>
+              </div>
+
+              {/* Opzione 2: Modifica Diretta */}
+              <form onSubmit={handleChangePasswordDirectly} className="bg-gray-50 border border-gray-200 rounded-lg p-3.5 space-y-3">
+                <div className="flex items-center gap-2 font-semibold text-gray-800 text-xs uppercase tracking-wide">
+                  <Lock size={15} className="text-gray-600" />
+                  <span>Metodo 2: Reimposta Password Direttamente</span>
+                </div>
+
+                {user?.email?.toLowerCase() === passwordModalUser.email.toLowerCase() ? (
+                  <p className="text-xs text-green-800 bg-green-50 border border-green-200 rounded p-2">
+                    Stai modificando la tua password (account amministratore attualmente connesso).
+                  </p>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Password Attuale/Temporanea dell'utente
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="Password attuale nota"
+                      value={currentPasswordInput}
+                      onChange={e => setCurrentPasswordInput(e.target.value)}
+                      className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#3b4781]"
+                    />
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      * Se non conosci la password attuale, usa il <strong>Metodo 1</strong> (link via email).
+                    </p>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Nuova Password <span className="text-gray-400 font-normal">(min. 6 caratteri)</span>
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="Inserisci la nuova password"
+                    required
+                    minLength={6}
+                    value={newPasswordInput}
+                    onChange={e => setNewPasswordInput(e.target.value)}
+                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#3b4781]"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isUpdatingPassword || !newPasswordInput.trim()}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-md transition-colors disabled:opacity-50 mt-1"
+                >
+                  <KeyRound size={13} />
+                  {isUpdatingPassword ? 'Aggiornamento in corso...' : 'Aggiorna Nuova Password'}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

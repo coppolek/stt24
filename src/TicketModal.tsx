@@ -12,7 +12,7 @@ interface TicketModalProps {
 }
 
 export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketModalProps) {
-  const { user } = useAuth();
+  const { user, canManageTicketStatus } = useAuth();
   const [loading, setLoading] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -22,7 +22,9 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
     descrizione: '',
     note: '',
     titolo: '',
-    priorita: 'Bassa'
+    priorita: 'Bassa',
+    stato: 'Aperto',
+    soluzione: ''
   });
 
   useEffect(() => {
@@ -34,7 +36,9 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
         descrizione: ticketToEdit.descrizione || '',
         note: ticketToEdit.note || '',
         titolo: ticketToEdit.titolo || '',
-        priorita: ticketToEdit.priorita || 'Bassa'
+        priorita: ticketToEdit.priorita || 'Bassa',
+        stato: ticketToEdit.stato || 'Aperto',
+        soluzione: ticketToEdit.soluzione || ''
       });
     } else if (isOpen) {
       setFormData({
@@ -44,7 +48,9 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
         descrizione: '',
         note: '',
         titolo: '',
-        priorita: 'Bassa'
+        priorita: 'Bassa',
+        stato: 'Aperto',
+        soluzione: ''
       });
     }
   }, [ticketToEdit, isOpen]);
@@ -61,15 +67,28 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
     
     setLoading(true);
     try {
+      const payload: any = {
+        ...formData
+      };
+
+      if (formData.stato === 'Presa in carico' || formData.stato === 'Chiusa') {
+        payload.gestitoDa = user.email || 'operatore';
+        payload.gestitoIl = Date.now();
+      }
+
       if (ticketToEdit) {
         const ticketRef = doc(db, 'tickets', ticketToEdit.id);
-        await updateDoc(ticketRef, {
-          ...formData
-        });
-        toast.success('Ticket aggiornato!');
+        await updateDoc(ticketRef, payload);
+        toast.success(
+          formData.stato === 'Chiusa' 
+            ? 'Ticket chiuso con successo!' 
+            : formData.stato === 'Presa in carico'
+            ? 'Ticket preso in carico!'
+            : 'Ticket aggiornato!'
+        );
       } else {
         await addDoc(collection(db, 'tickets'), {
-          ...formData,
+          ...payload,
           userId: user.uid,
           createdAt: serverTimestamp()
         });
@@ -174,17 +193,109 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
               />
             </div>
 
-            {/* Note */}
-            <div className="flex flex-col gap-1 md:col-span-2">
-              <label className="text-xs font-semibold text-gray-600">Note</label>
+            {/* Risposta del fornitore */}
+            <div className={`flex flex-col gap-1.5 md:col-span-2 p-3 rounded-lg transition-all ${
+              formData.stato === 'Presa in carico'
+                ? 'bg-amber-50/70 border-2 border-amber-400/80 shadow-xs'
+                : 'border border-gray-200 bg-gray-50/30'
+            }`}>
+              <div className="flex items-center justify-between flex-wrap gap-1">
+                <label className="text-xs font-bold text-[#2d325a]">Risposta del fornitore</label>
+                {formData.stato === 'Presa in carico' && (
+                  <span className="text-[11px] font-semibold text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
+                    🟡 In carico: scrivi qui la risposta ricevuta dal fornitore
+                  </span>
+                )}
+              </div>
               <textarea
                 name="note"
                 value={formData.note}
                 onChange={handleChange}
-                rows={3}
-                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent resize-y"
+                placeholder="Inserisci la risposta del fornitore, preventivo o tempistiche di intervento..."
+                rows={formData.stato === 'Presa in carico' ? 3 : 2}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent resize-y bg-white"
               />
             </div>
+
+            {/* Gestione e Soluzione Ticket (visibile per operatori/gestori o in modifica) */}
+            {(canManageTicketStatus || ticketToEdit) && (
+              <div className="md:col-span-2 bg-blue-50/60 p-3.5 rounded-lg border border-blue-100 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#2d325a] uppercase tracking-wide">
+                    Stato di Gestione & Risoluzione
+                  </span>
+                  {ticketToEdit?.gestitoDa && (
+                    <span className="text-[11px] text-gray-500">
+                      Ultima gestione: <strong>{ticketToEdit.gestitoDa}</strong>
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <label className={`flex items-center gap-2 p-2.5 rounded-md border text-xs font-medium cursor-pointer transition-all ${
+                    formData.stato === 'Aperto' 
+                      ? 'bg-white border-blue-500 text-blue-800 shadow-xs ring-2 ring-blue-200' 
+                      : 'bg-white/60 border-gray-200 text-gray-600 hover:bg-white'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="stato"
+                      value="Aperto"
+                      checked={formData.stato === 'Aperto'}
+                      onChange={handleChange}
+                      className="text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>🔵 Aperto</span>
+                  </label>
+
+                  <label className={`flex items-center gap-2 p-2.5 rounded-md border text-xs font-medium cursor-pointer transition-all ${
+                    formData.stato === 'Presa in carico' 
+                      ? 'bg-white border-amber-500 text-amber-800 shadow-xs ring-2 ring-amber-200' 
+                      : 'bg-white/60 border-gray-200 text-gray-600 hover:bg-white'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="stato"
+                      value="Presa in carico"
+                      checked={formData.stato === 'Presa in carico'}
+                      onChange={handleChange}
+                      className="text-amber-600 focus:ring-amber-500"
+                    />
+                    <span>🟡 Presa in carico</span>
+                  </label>
+
+                  <label className={`flex items-center gap-2 p-2.5 rounded-md border text-xs font-medium cursor-pointer transition-all ${
+                    formData.stato === 'Chiusa' 
+                      ? 'bg-white border-green-500 text-green-800 shadow-xs ring-2 ring-green-200' 
+                      : 'bg-white/60 border-gray-200 text-gray-600 hover:bg-white'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="stato"
+                      value="Chiusa"
+                      checked={formData.stato === 'Chiusa'}
+                      onChange={handleChange}
+                      className="text-green-600 focus:ring-green-500"
+                    />
+                    <span>🟢 Chiusa</span>
+                  </label>
+                </div>
+
+                <div className="flex flex-col gap-1 mt-1">
+                  <label className="text-xs font-semibold text-gray-600">
+                    Soluzione / Note di Lavorazione
+                  </label>
+                  <textarea
+                    name="soluzione"
+                    placeholder="Descrivi l'intervento effettuato, le azioni intraprese o il motivo della chiusura..."
+                    value={formData.soluzione}
+                    onChange={handleChange}
+                    rows={2}
+                    className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b4781] focus:border-transparent resize-y"
+                  />
+                </div>
+              </div>
+            )}
           </div>
           
           {/* Modal Footer */}
