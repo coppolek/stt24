@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, File, FileText, Image as ImageIcon, X, FolderOpen, Plus, Pencil, Trash2, Check } from 'lucide-react';
+import { Upload, File, FileText, Image as ImageIcon, X, FolderOpen, Plus, Pencil, Trash2, Check, Loader2 } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 import { useAuth } from './AuthContext';
 import { 
   getTabAttachment, 
@@ -9,7 +10,8 @@ import {
   getFatturazioneTabs,
   saveFatturazioneTabs,
   renameTabAttachment,
-  DEFAULT_TABS
+  DEFAULT_TABS,
+  ArchivedDocument
 } from './storage';
 
 export default function FatturazioneView() {
@@ -80,8 +82,9 @@ export default function FatturazioneView() {
   };
 
   const confirmFileUpload = async () => {
-    if (!pendingFile) return;
+    if (!pendingFile || isSavingAttachment) return;
     setIsSavingAttachment(true);
+    const toastId = toast.loading('Salvataggio file nel Cloud in corso...');
     
     try {
       if (attachment) {
@@ -94,13 +97,31 @@ export default function FatturazioneView() {
           description: 'Documento sostituito in Fatturazione - ' + activeTab,
           uploadDate: new Date()
         };
-        await saveToArchive(archiveDoc, attachment.file);
+        // Archive in background without blocking
+        saveToArchive(archiveDoc, attachment.file).catch(err => {
+          console.warn('Archiviazione documento precedente ignorata:', err);
+        });
         if (attachment.url && attachment.url.startsWith('blob:')) {
           URL.revokeObjectURL(attachment.url);
         }
       }
       
       const finalName = customFileName.trim() || pendingFile.name;
+
+      // Salva automaticamente il file in Archivio Documenti
+      const archiveUploadedDoc: ArchivedDocument = {
+        id: Math.random().toString(36).substr(2, 9),
+        fileName: pendingFile.name,
+        fileType: pendingFile.type,
+        fileSize: pendingFile.size,
+        file: pendingFile,
+        relatedId: finalName,
+        description: `Caricato da sezione ${activeTab}`,
+        uploadDate: new Date()
+      };
+      await saveToArchive(archiveUploadedDoc, pendingFile);
+
+      // Salva l'allegato per la scheda di Fatturazione corrente
       const newAtt = { name: finalName, type: pendingFile.type, file: pendingFile };
       await saveTabAttachment(activeTab, newAtt);
       
@@ -109,8 +130,10 @@ export default function FatturazioneView() {
       
       setPendingFile(null);
       setCustomFileName('');
-    } catch (err) {
+      toast.success('Documento salvato e aggiunto in Archivio Documenti!', { id: toastId });
+    } catch (err: any) {
       console.error('Errore salvataggio allegato:', err);
+      toast.error('Errore durante il salvataggio in cloud: ' + (err?.message || 'Riprova.'), { id: toastId });
     } finally {
       setIsSavingAttachment(false);
     }
@@ -491,27 +514,38 @@ export default function FatturazioneView() {
               type="text"
               value={customFileName}
               onChange={(e) => setCustomFileName(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#3b4781] mb-6 font-medium text-gray-800"
+              disabled={isSavingAttachment}
+              className="w-full border border-gray-300 rounded-md px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#3b4781] mb-6 font-medium text-gray-800 disabled:bg-gray-100"
               autoFocus
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && customFileName.trim()) {
+                if (e.key === 'Enter' && customFileName.trim() && !isSavingAttachment) {
                   confirmFileUpload();
                 }
               }}
             />
             <div className="flex gap-3 justify-end">
               <button
+                type="button"
                 onClick={cancelFileUpload}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-md font-medium transition-colors"
+                disabled={isSavingAttachment}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-md font-medium transition-colors disabled:opacity-50 cursor-pointer"
               >
                 Annulla
               </button>
               <button
+                type="button"
                 onClick={confirmFileUpload}
-                disabled={!customFileName.trim()}
-                className="px-4 py-2 bg-[#3b4781] hover:bg-[#2d325a] text-white rounded-md font-medium transition-colors disabled:opacity-50"
+                disabled={!customFileName.trim() || isSavingAttachment}
+                className="flex items-center gap-2 px-4 py-2 bg-[#3b4781] hover:bg-[#2d325a] text-white rounded-md font-medium transition-colors disabled:opacity-50 cursor-pointer"
               >
-                Conferma e Salva
+                {isSavingAttachment ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin text-white" />
+                    <span>Salvataggio in corso...</span>
+                  </>
+                ) : (
+                  <span>Conferma e Salva</span>
+                )}
               </button>
             </div>
           </div>

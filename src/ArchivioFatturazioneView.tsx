@@ -153,14 +153,14 @@ export default function ArchivioFatturazioneView() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-3">
-              <h2 className="text-2xl font-bold text-[#2d325a]">Archivio Documenti Fatturazione</h2>
+              <h2 className="text-2xl font-bold text-[#2d325a]">Archivio Documenti</h2>
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-xs">
                 <Cloud size={14} className="text-emerald-600" />
                 Salvataggio in Cloud Attivo
               </span>
             </div>
             <p className="text-gray-500 mt-1">
-              Carica e archivia fatture, ricevute o documenti di lavorazione. I file sono salvati nel Cloud e sincronizzati in tempo reale tra tutti i dispositivi.
+              Carica e consulta tutti i file e i documenti dell'attività. Tutti i file caricati confluiscono automaticamente qui e sono salvati nel Cloud in tempo reale.
             </p>
           </div>
 

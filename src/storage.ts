@@ -38,7 +38,69 @@ export interface ArchivedDocument {
 }
 
 const ARCHIVE_LOCAL_KEY = 'archivio_documenti';
-const CHUNK_CHAR_LIMIT = 400000; // 400KB characters per Firestore document chunk
+const CHUNK_CHAR_LIMIT = 400000; // ~400KB characters per Firestore chunk
+
+/**
+ * Optimizes/compresses high-resolution images (e.g. photos from smartphone/WhatsApp)
+ * before uploading to cloud, keeping file size small and uploads fast.
+ */
+export async function optimizeImageIfNeeded(file: File): Promise<File> {
+  if (!file.type.startsWith('image/')) {
+    return file;
+  }
+  // If file is already small (under 400KB), keep as-is
+  if (file.size <= 400 * 1024) {
+    return file;
+  }
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const maxDim = 1600;
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(file);
+        return;
+      }
+
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+        (blob) => {
+          if (blob && blob.size < file.size) {
+            resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+          } else {
+            resolve(file);
+          }
+        },
+        'image/jpeg',
+        0.82
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(file);
+    };
+    img.src = objectUrl;
+  });
+}
 
 // Helper: Convert File to Base64 Data URL
 export function fileToBase64(file: File | Blob): Promise<string> {
@@ -75,15 +137,23 @@ export function base64ToBlob(base64DataUrl: string): Blob {
   }
 }
 
-// Helper: Try uploading file to Firebase Storage
+// Helper: Try uploading file to Firebase Storage with a strict 3500ms timeout
+// to prevent hanging if Firebase Storage is inactive or blocked by CORS.
 async function tryUploadToFirebaseStorage(path: string, file: File): Promise<string | null> {
   try {
-    const storageRef = ref(storage, path);
-    const snapshot = await uploadBytes(storageRef, file);
-    const downloadUrl = await getDownloadURL(snapshot.ref);
-    return downloadUrl;
+    const uploadPromise = (async () => {
+      const storageRef = ref(storage, path);
+      const snapshot = await uploadBytes(storageRef, file);
+      return await getDownloadURL(snapshot.ref);
+    })();
+
+    const timeoutPromise = new Promise<null>((_, reject) => 
+      setTimeout(() => reject(new Error('Firebase Storage timeout')), 3500)
+    );
+
+    return await Promise.race([uploadPromise, timeoutPromise]);
   } catch (err) {
-    console.warn('Firebase Storage upload not available or permission denied, using Cloud Firestore fallback:', err);
+    console.warn('Firebase Storage upload not available or timed out, falling back to Cloud Firestore storage:', err);
     return null;
   }
 }
@@ -94,7 +164,7 @@ async function tryDeleteFromFirebaseStorage(path: string) {
     const storageRef = ref(storage, path);
     await deleteObject(storageRef);
   } catch (err) {
-    // Ignore if not found
+    // Non-fatal
   }
 }
 
@@ -201,7 +271,6 @@ export async function downloadCloudDocument(docItem: ArchivedDocument) {
 
 /**
  * Gets all archive documents from Cloud Firestore.
- * Automatically checks and migrates any existing local documents.
  */
 export const getArchive = async (): Promise<ArchivedDocument[]> => {
   try {
@@ -237,23 +306,9 @@ export const getArchive = async (): Promise<ArchivedDocument[]> => {
       });
     }
 
-    // Check if there are local legacy documents that need migration to Cloud
-    const localDocs = await get(ARCHIVE_LOCAL_KEY);
-    if (Array.isArray(localDocs) && localDocs.length > 0) {
-      // Migrate each to Cloud Firestore in the background
-      for (const localDoc of localDocs) {
-        if (!cloudDocs.some(cd => cd.id === localDoc.id || cd.fileName === localDoc.fileName)) {
-          if (localDoc.file) {
-            saveToArchive(localDoc).catch(console.error);
-          }
-        }
-      }
-    }
-
     return cloudDocs;
   } catch (error) {
     console.error('Error fetching archive from cloud:', error);
-    // Fallback to local
     const local = await get(ARCHIVE_LOCAL_KEY);
     return local || [];
   }
@@ -263,7 +318,11 @@ export const getArchive = async (): Promise<ArchivedDocument[]> => {
  * Saves a document to Cloud (Firebase Storage or Cloud Firestore).
  */
 export const saveToArchive = async (docData: ArchivedDocument, providedFile?: File) => {
-  const fileToSave = providedFile || docData.file;
+  let fileToSave = providedFile || docData.file;
+  if (fileToSave) {
+    fileToSave = await optimizeImageIfNeeded(fileToSave);
+  }
+
   const docId = docData.id || Math.random().toString(36).substr(2, 9);
   const now = Date.now();
   const userEmail = auth.currentUser?.email || 'anon';
@@ -275,7 +334,7 @@ export const saveToArchive = async (docData: ArchivedDocument, providedFile?: Fi
   let chunkCount = 0;
 
   if (fileToSave) {
-    // 1. First attempt: upload to Firebase Storage
+    // 1. First attempt: upload to Firebase Storage (with 3.5s timeout)
     const cleanFileName = fileToSave.name.replace(/[^a-zA-Z0-9._-]/g, '_');
     storagePath = `archivio/${docId}_${cleanFileName}`;
     const storageUrl = await tryUploadToFirebaseStorage(storagePath, fileToSave);
@@ -363,12 +422,10 @@ export const removeFromArchive = async (id: string) => {
 
     if (snap.exists()) {
       const data = snap.data();
-      // If was stored in Firebase Storage, delete from storage
       if (data.storagePath) {
         await tryDeleteFromFirebaseStorage(data.storagePath);
       }
 
-      // If chunked, delete subcollection chunks
       if (data.storageType === 'firestore_chunked') {
         const chunksSnap = await getDocs(collection(db, 'archived_documents', id, 'chunks'));
         const batch = writeBatch(db);
@@ -376,7 +433,6 @@ export const removeFromArchive = async (id: string) => {
         await batch.commit();
       }
 
-      // Delete main document
       await deleteDoc(docRef);
     }
   } catch (err) {
@@ -409,6 +465,7 @@ export interface CloudTabAttachment {
   storagePath?: string;
   storageType?: string;
   dataBase64?: string;
+  chunkCount?: number;
   updatedAt?: number;
 }
 
@@ -422,9 +479,22 @@ export const getTabAttachment = async (tab: string): Promise<CloudTabAttachment 
       const data = snap.data();
       let url = data.fileUrl || '';
 
-      if (!url && data.dataBase64) {
+      if (!url && data.storageType === 'firestore_inline' && data.dataBase64) {
         const blob = base64ToBlob(data.dataBase64);
         url = URL.createObjectURL(blob);
+      } else if (!url && data.storageType === 'firestore_chunked' && data.chunkCount) {
+        try {
+          const chunksSnap = await getDocs(collection(db, 'fatturazione_attachments', safeTabKey, 'chunks'));
+          const sortedChunks = chunksSnap.docs
+            .map(d => d.data() as { chunkIndex: number; data: string })
+            .sort((a, b) => a.chunkIndex - b.chunkIndex);
+
+          const combinedBase64 = sortedChunks.map(c => c.data).join('');
+          const blob = base64ToBlob(combinedBase64);
+          url = URL.createObjectURL(blob);
+        } catch (chunkErr) {
+          console.error('Error loading tab attachment chunks from cloud:', chunkErr);
+        }
       }
 
       return {
@@ -435,7 +505,8 @@ export const getTabAttachment = async (tab: string): Promise<CloudTabAttachment 
         fileUrl: data.fileUrl,
         storagePath: data.storagePath,
         storageType: data.storageType,
-        dataBase64: data.dataBase64
+        dataBase64: data.dataBase64,
+        chunkCount: data.chunkCount
       };
     }
   } catch (err) {
@@ -452,19 +523,44 @@ export const saveTabAttachment = async (
 ) => {
   const safeTabKey = encodeURIComponent(tab);
   const now = Date.now();
+  
+  // Optimize image if it's an image file
+  const fileToSave = await optimizeImageIfNeeded(attachment.file);
+
   let storageType = 'firestore_inline';
   let storagePath = `fatturazione/${safeTabKey}_${attachment.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
   let cloudFileUrl = '';
   let dataBase64 = '';
+  let chunkCount = 0;
 
-  // Try Firebase Storage first
-  const storageUrl = await tryUploadToFirebaseStorage(storagePath, attachment.file);
+  // Try Firebase Storage first with 3.5s timeout
+  const storageUrl = await tryUploadToFirebaseStorage(storagePath, fileToSave);
   if (storageUrl) {
     storageType = 'firebase_storage';
     cloudFileUrl = storageUrl;
   } else {
     storagePath = '';
-    dataBase64 = await fileToBase64(attachment.file);
+    dataBase64 = await fileToBase64(fileToSave);
+
+    if (dataBase64.length <= 750000) {
+      storageType = 'firestore_inline';
+    } else {
+      // Chunking for large files to avoid Firestore 1MB document limit
+      storageType = 'firestore_chunked';
+      const chunks: string[] = [];
+      for (let i = 0; i < dataBase64.length; i += CHUNK_CHAR_LIMIT) {
+        chunks.push(dataBase64.substring(i, i + CHUNK_CHAR_LIMIT));
+      }
+      chunkCount = chunks.length;
+
+      const batch = writeBatch(db);
+      for (let idx = 0; idx < chunks.length; idx++) {
+        const chunkRef = doc(db, 'fatturazione_attachments', safeTabKey, 'chunks', String(idx));
+        batch.set(chunkRef, { chunkIndex: idx, data: chunks[idx] });
+      }
+      await batch.commit();
+      dataBase64 = '';
+    }
   }
 
   // Save to Cloud Firestore
@@ -473,16 +569,21 @@ export const saveTabAttachment = async (
     tabName: tab,
     name: attachment.name,
     type: attachment.type,
-    size: attachment.file.size,
+    size: fileToSave.size,
     fileUrl: cloudFileUrl,
     storagePath,
     storageType,
+    chunkCount,
     dataBase64: storageType === 'firestore_inline' ? dataBase64 : '',
     updatedAt: now
   });
 
   // Local backup
-  await set(`fatturazione_attachment_${tab}`, attachment);
+  await set(`fatturazione_attachment_${tab}`, {
+    name: attachment.name,
+    type: attachment.type,
+    file: fileToSave
+  });
 };
 
 export const removeTabAttachment = async (tab: string) => {
@@ -494,6 +595,12 @@ export const removeTabAttachment = async (tab: string) => {
       const data = snap.data();
       if (data.storagePath) {
         await tryDeleteFromFirebaseStorage(data.storagePath);
+      }
+      if (data.storageType === 'firestore_chunked') {
+        const chunksSnap = await getDocs(collection(db, 'fatturazione_attachments', safeTabKey, 'chunks'));
+        const batch = writeBatch(db);
+        chunksSnap.docs.forEach(c => batch.delete(c.ref));
+        await batch.commit();
       }
       await deleteDoc(docRef);
     }
