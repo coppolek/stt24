@@ -71,6 +71,140 @@
         }
       },
       "required": ["descrizione", "userId", "createdAt"]
+    },
+    "ArchivedDocument": {
+      "title": "ArchivedDocument",
+      "description": "Documento archiviato nel cloud (fatture, ricevute, file).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "fileName": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "fileType": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "fileSize": {
+          "type": "number"
+        },
+        "relatedId": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "fileUrl": {
+          "type": "string",
+          "maxLength": 5000
+        },
+        "storagePath": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "storageType": {
+          "type": "string",
+          "enum": ["firebase_storage", "firestore_inline", "firestore_chunked"],
+          "maxLength": 30
+        },
+        "dataBase64": {
+          "type": "string",
+          "maxLength": 1000000
+        },
+        "chunkCount": {
+          "type": "number"
+        },
+        "uploadedBy": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "uploadDate": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "createdAt": {
+          "type": "number"
+        }
+      },
+      "required": ["fileName", "createdAt"]
+    },
+    "DocumentChunk": {
+      "title": "DocumentChunk",
+      "description": "Frammento di file memorizzato su Firestore per file grandi.",
+      "type": "object",
+      "properties": {
+        "chunkIndex": {
+          "type": "number"
+        },
+        "data": {
+          "type": "string",
+          "maxLength": 800000
+        }
+      },
+      "required": ["chunkIndex", "data"]
+    },
+    "FatturazioneAttachment": {
+      "title": "FatturazioneAttachment",
+      "description": "Allegato cloud associato ad una specifica scheda di fatturazione.",
+      "type": "object",
+      "properties": {
+        "tabName": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "type": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "size": {
+          "type": "number"
+        },
+        "fileUrl": {
+          "type": "string",
+          "maxLength": 5000
+        },
+        "storagePath": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "dataBase64": {
+          "type": "string",
+          "maxLength": 1000000
+        },
+        "storageType": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "updatedAt": {
+          "type": "number"
+        }
+      },
+      "required": ["tabName", "name"]
+    },
+    "FatturazioneConfig": {
+      "title": "FatturazioneConfig",
+      "description": "Configurazione schede di fatturazione condivisa nel cloud.",
+      "type": "object",
+      "properties": {
+        "tabs": {
+          "type": "string",
+          "maxLength": 5000
+        },
+        "updatedAt": {
+          "type": "number"
+        }
+      },
+      "required": ["tabs"]
     }
   },
   "firestore": {
@@ -85,6 +219,30 @@
         "$ref": "#/entities/Ticket"
       },
       "description": "Collection of daily logs/tickets."
+    },
+    "/archived_documents/{docId}": {
+      "schema": {
+        "$ref": "#/entities/ArchivedDocument"
+      },
+      "description": "Documenti archiviati salvati nel Cloud."
+    },
+    "/archived_documents/{docId}/chunks/{chunkId}": {
+      "schema": {
+        "$ref": "#/entities/DocumentChunk"
+      },
+      "description": "Frammenti dati documento nel Cloud."
+    },
+    "/fatturazione_attachments/{tabId}": {
+      "schema": {
+        "$ref": "#/entities/FatturazioneAttachment"
+      },
+      "description": "Allegati delle schede di fatturazione nel Cloud."
+    },
+    "/fatturazione_config/{configId}": {
+      "schema": {
+        "$ref": "#/entities/FatturazioneConfig"
+      },
+      "description": "Configurazione generale delle schede di fatturazione nel Cloud."
     }
   }
 }

@@ -14,6 +14,26 @@ service cloud.firestore {
     match /tickets/{ticketId} {
       allow read, write: if true;
     }
+
+    match /archived_documents/{docId} {
+      allow read, write: if true;
+
+      match /chunks/{chunkId} {
+        allow read, write: if true;
+      }
+    }
+
+    match /fatturazione_attachments/{tabId} {
+      allow read, write: if true;
+
+      match /chunks/{chunkId} {
+        allow read, write: if true;
+      }
+    }
+
+    match /fatturazione_config/{configId} {
+      allow read, write: if true;
+    }
   }
 }
 

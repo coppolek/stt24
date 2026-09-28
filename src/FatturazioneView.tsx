@@ -27,6 +27,7 @@ export default function FatturazioneView() {
   const [editTabName, setEditTabName] = useState('');
   const [deletingTab, setDeletingTab] = useState<string | null>(null);
 
+  const [isSavingAttachment, setIsSavingAttachment] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load tabs from storage on mount
@@ -47,8 +48,13 @@ export default function FatturazioneView() {
       try {
         const stored = await getTabAttachment(activeTab);
         if (stored) {
-          currentUrl = URL.createObjectURL(stored.file);
-          setAttachment({ ...stored, url: currentUrl });
+          currentUrl = stored.url || stored.fileUrl || (stored.file ? URL.createObjectURL(stored.file) : '');
+          setAttachment({ 
+            name: stored.name, 
+            type: stored.type, 
+            url: currentUrl, 
+            file: stored.file as any 
+          });
         } else {
           setAttachment(null);
         }
@@ -58,7 +64,9 @@ export default function FatturazioneView() {
     };
     loadAttachment();
     return () => {
-      if (currentUrl) URL.revokeObjectURL(currentUrl);
+      if (currentUrl && currentUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(currentUrl);
+      }
     };
   }, [activeTab]);
 
@@ -73,30 +81,39 @@ export default function FatturazioneView() {
 
   const confirmFileUpload = async () => {
     if (!pendingFile) return;
+    setIsSavingAttachment(true);
     
-    if (attachment) {
-      const archiveDoc = {
-        id: Math.random().toString(36).substr(2, 9),
-        fileName: attachment.name,
-        fileType: attachment.type,
-        file: attachment.file,
-        relatedId: 'Sezione: ' + activeTab,
-        description: 'Documento sostituito in Fatturazione - ' + activeTab,
-        uploadDate: new Date()
-      };
-      await saveToArchive(archiveDoc);
-      URL.revokeObjectURL(attachment.url);
+    try {
+      if (attachment) {
+        const archiveDoc = {
+          id: Math.random().toString(36).substr(2, 9),
+          fileName: attachment.name,
+          fileType: attachment.type,
+          file: attachment.file,
+          relatedId: 'Sezione: ' + activeTab,
+          description: 'Documento sostituito in Fatturazione - ' + activeTab,
+          uploadDate: new Date()
+        };
+        await saveToArchive(archiveDoc, attachment.file);
+        if (attachment.url && attachment.url.startsWith('blob:')) {
+          URL.revokeObjectURL(attachment.url);
+        }
+      }
+      
+      const finalName = customFileName.trim() || pendingFile.name;
+      const newAtt = { name: finalName, type: pendingFile.type, file: pendingFile };
+      await saveTabAttachment(activeTab, newAtt);
+      
+      const url = URL.createObjectURL(pendingFile);
+      setAttachment({ ...newAtt, url });
+      
+      setPendingFile(null);
+      setCustomFileName('');
+    } catch (err) {
+      console.error('Errore salvataggio allegato:', err);
+    } finally {
+      setIsSavingAttachment(false);
     }
-    
-    const finalName = customFileName.trim() || pendingFile.name;
-    const newAtt = { name: finalName, type: pendingFile.type, file: pendingFile };
-    await saveTabAttachment(activeTab, newAtt);
-    
-    const url = URL.createObjectURL(pendingFile);
-    setAttachment({ ...newAtt, url });
-    
-    setPendingFile(null);
-    setCustomFileName('');
   };
 
   const cancelFileUpload = () => {
@@ -340,7 +357,7 @@ export default function FatturazioneView() {
             <FolderOpen size={64} className="text-gray-300 mb-4" />
             <h3 className="text-xl font-medium text-gray-700 mb-2">Nessun documento caricato per "{activeTab}"</h3>
             <p className="text-sm text-gray-500 mb-6 text-center max-w-md">
-              Allega un file PDF, Excel o Immagine per questa sezione.<br/> Il file rimarrà in memoria fino al suo invio in archivio.
+              Allega un file PDF, Excel o Immagine per questa sezione.<br/> Il file verrà salvato in modo sicuro nel Cloud.
             </p>
             <button 
               onClick={() => fileInputRef.current?.click()}
