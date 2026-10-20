@@ -1,0 +1,7 @@
+{
+  "user": "ADMIN",
+  "password": "Sveva310320@",
+  "connectString": "(description=(retry_count=3)(retry_delay=1)(address=(protocol=tcps)(port=1521)(host=adb.eu-turin-1.oraclecloud.com))(connect_data=(service_name=g4baf80d64d08cb_ua0vjdcnqxa4bx0x_high.adb.oraclecloud.com))(security=(ssl_server_dn_match=yes)))",
+  "useWallet": false,
+  "walletPassword": "Sveva310320@"
+}

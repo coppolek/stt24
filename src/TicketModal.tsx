@@ -108,6 +108,17 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
       if (ticketToEdit) {
         const ticketRef = doc(db, 'tickets', ticketToEdit.id);
         await updateDoc(ticketRef, payload);
+
+        // Auto-sync to Oracle in the background
+        fetch('/api/oracle/tickets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: ticketToEdit.id,
+            ...payload,
+          }),
+        }).catch(() => {});
+
         toast.success(
           formData.stato === 'Chiusa' 
             ? 'Ticket chiuso con successo!' 
@@ -116,11 +127,24 @@ export default function TicketModal({ isOpen, onClose, ticketToEdit }: TicketMod
             : 'Ticket aggiornato!'
         );
       } else {
-        await addDoc(collection(db, 'tickets'), {
+        const docRef = await addDoc(collection(db, 'tickets'), {
           ...payload,
           userId: user.uid,
           createdAt: serverTimestamp()
         });
+
+        // Auto-sync to Oracle in the background
+        fetch('/api/oracle/tickets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: docRef.id,
+            ...payload,
+            userId: user.uid,
+            createdAt: Date.now(),
+          }),
+        }).catch(() => {});
+
         toast.success('Ticket aggiunto con successo!');
       }
       onClose();

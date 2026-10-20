@@ -6,7 +6,9 @@ import config from '../firebase-applet-config.json';
 
 export const firebaseConfig = config;
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const db = (firebaseConfig as any).firestoreDatabaseId 
+  ? getFirestore(app, (firebaseConfig as any).firestoreDatabaseId)
+  : getFirestore(app);
 export const storage = getStorage(app);
 export const auth = getAuth(app);
 
@@ -14,9 +16,16 @@ export const loginWithEmail = async (email: string, pass: string) => {
   await signInWithEmailAndPassword(auth, email, pass);
 };
 
+export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+
 export const loginWithGoogle = async () => {
   const provider = new GoogleAuthProvider();
-  await signInWithPopup(auth, provider);
+  provider.addScope(DRIVE_SCOPE);
+  provider.setCustomParameters({
+    prompt: 'select_account',
+  });
+  const result = await signInWithPopup(auth, provider);
+  return result;
 };
 
 export const logout = async () => {

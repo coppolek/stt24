@@ -18,6 +18,11 @@ import {
   deleteObject 
 } from 'firebase/storage';
 import { db, storage, auth } from './firebase';
+import {
+  isGoogleDriveConnected,
+  uploadFileToGoogleDrive,
+  deleteFileFromGoogleDrive,
+} from './googleDrive';
 
 export interface ArchivedDocument {
   id: string;
@@ -29,8 +34,11 @@ export interface ArchivedDocument {
   description: string;
   uploadDate: Date;
   fileUrl?: string;
-  storageType?: 'firebase_storage' | 'firestore_inline' | 'firestore_chunked';
+  storageType?: 'firebase_storage' | 'firestore_inline' | 'firestore_chunked' | 'google_drive';
   storagePath?: string;
+  driveFileId?: string;
+  driveWebViewLink?: string;
+  driveWebContentLink?: string;
   dataBase64?: string;
   chunkCount?: number;
   uploadedBy?: string;
@@ -137,25 +145,10 @@ export function base64ToBlob(base64DataUrl: string): Blob {
   }
 }
 
-// Helper: Try uploading file to Firebase Storage with a strict 3500ms timeout
-// to prevent hanging if Firebase Storage is inactive or blocked by CORS.
-async function tryUploadToFirebaseStorage(path: string, file: File): Promise<string | null> {
-  try {
-    const uploadPromise = (async () => {
-      const storageRef = ref(storage, path);
-      const snapshot = await uploadBytes(storageRef, file);
-      return await getDownloadURL(snapshot.ref);
-    })();
-
-    const timeoutPromise = new Promise<null>((_, reject) => 
-      setTimeout(() => reject(new Error('Firebase Storage timeout')), 3500)
-    );
-
-    return await Promise.race([uploadPromise, timeoutPromise]);
-  } catch (err) {
-    console.warn('Firebase Storage upload not available or timed out, falling back to Cloud Firestore storage:', err);
-    return null;
-  }
+// Helper: Firebase Storage is not provisioned in this setup, so we store directly in Cloud Firestore / DB
+// without waiting for long timeouts that freeze the UI.
+async function tryUploadToFirebaseStorage(_path: string, _file: File): Promise<string | null> {
+  return null;
 }
 
 // Helper: Delete file from Firebase Storage if present
@@ -220,9 +213,13 @@ export function subscribeToArchive(
 }
 
 /**
- * Loads or reconstitutes the file URL (for chunked cloud documents if needed).
+ * Loads or reconstitutes the file URL (for chunked cloud documents or Google Drive if needed).
  */
 export async function getDocumentFileUrl(docItem: ArchivedDocument): Promise<string> {
+  if (docItem.storageType === 'google_drive') {
+    return docItem.driveWebViewLink || docItem.fileUrl || '';
+  }
+
   if (docItem.fileUrl) {
     return docItem.fileUrl;
   }
@@ -254,6 +251,14 @@ export async function getDocumentFileUrl(docItem: ArchivedDocument): Promise<str
  * Download or open a cloud document.
  */
 export async function downloadCloudDocument(docItem: ArchivedDocument) {
+  if (docItem.storageType === 'google_drive') {
+    const driveUrl = docItem.driveWebViewLink || docItem.fileUrl;
+    if (driveUrl) {
+      window.open(driveUrl, '_blank');
+      return;
+    }
+  }
+
   const url = await getDocumentFileUrl(docItem);
   if (!url) {
     alert('Impossibile recuperare il file dal cloud.');
@@ -325,48 +330,68 @@ export const saveToArchive = async (docData: ArchivedDocument, providedFile?: Fi
 
   const docId = docData.id || Math.random().toString(36).substr(2, 9);
   const now = Date.now();
-  const userEmail = auth.currentUser?.email || 'anon';
+  const userEmail = auth.currentUser?.email || (typeof window !== 'undefined' && localStorage.getItem('stt24_admin_session') ? 'coppolek@gmail.com' : 'operatore');
 
-  let storageType: 'firebase_storage' | 'firestore_inline' | 'firestore_chunked' = 'firestore_inline';
+  let storageType: 'firebase_storage' | 'firestore_inline' | 'firestore_chunked' | 'google_drive' = 'firestore_inline';
   let storagePath = '';
   let cloudFileUrl = '';
   let dataBase64 = '';
   let chunkCount = 0;
+  let driveFileId = '';
+  let driveWebViewLink = '';
+  let driveWebContentLink = '';
 
   if (fileToSave) {
-    // 1. First attempt: upload to Firebase Storage (with 3.5s timeout)
-    const cleanFileName = fileToSave.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    storagePath = `archivio/${docId}_${cleanFileName}`;
-    const storageUrl = await tryUploadToFirebaseStorage(storagePath, fileToSave);
+    // 0. Prefer Google Drive if connected
+    if (isGoogleDriveConnected()) {
+      try {
+        const driveRes = await uploadFileToGoogleDrive(fileToSave, docData.relatedId || fileToSave.name);
+        storageType = 'google_drive';
+        cloudFileUrl = driveRes.webViewLink;
+        driveFileId = driveRes.fileId;
+        driveWebViewLink = driveRes.webViewLink;
+        driveWebContentLink = driveRes.webContentLink;
+        storagePath = driveRes.fileId;
+      } catch (driveErr) {
+        console.warn('Caricamento Google Drive fallito, fallback a Firebase Storage/Firestore:', driveErr);
+      }
+    }
 
-    if (storageUrl) {
-      storageType = 'firebase_storage';
-      cloudFileUrl = storageUrl;
-    } else {
-      // 2. Second attempt / Cloud Firestore persistence: encode as Base64
-      storagePath = '';
-      dataBase64 = await fileToBase64(fileToSave);
+    if (storageType !== 'google_drive') {
+      // 1. First attempt: upload to Firebase Storage (with 3.5s timeout)
+      const cleanFileName = fileToSave.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      storagePath = `archivio/${docId}_${cleanFileName}`;
+      const storageUrl = await tryUploadToFirebaseStorage(storagePath, fileToSave);
 
-      if (dataBase64.length <= 750000) {
-        storageType = 'firestore_inline';
+      if (storageUrl) {
+        storageType = 'firebase_storage';
+        cloudFileUrl = storageUrl;
       } else {
-        // Chunk the file across subcollection documents
-        storageType = 'firestore_chunked';
-        const chunks: string[] = [];
-        for (let i = 0; i < dataBase64.length; i += CHUNK_CHAR_LIMIT) {
-          chunks.push(dataBase64.substring(i, i + CHUNK_CHAR_LIMIT));
-        }
-        chunkCount = chunks.length;
+        // 2. Second attempt / Cloud Firestore persistence: encode as Base64
+        storagePath = '';
+        dataBase64 = await fileToBase64(fileToSave);
 
-        // Save chunks to subcollection
-        const batch = writeBatch(db);
-        for (let idx = 0; idx < chunks.length; idx++) {
-          const chunkRef = doc(db, 'archived_documents', docId, 'chunks', String(idx));
-          batch.set(chunkRef, { chunkIndex: idx, data: chunks[idx] });
+        if (dataBase64.length <= 750000) {
+          storageType = 'firestore_inline';
+        } else {
+          // Chunk the file across subcollection documents
+          storageType = 'firestore_chunked';
+          const chunks: string[] = [];
+          for (let i = 0; i < dataBase64.length; i += CHUNK_CHAR_LIMIT) {
+            chunks.push(dataBase64.substring(i, i + CHUNK_CHAR_LIMIT));
+          }
+          chunkCount = chunks.length;
+
+          // Save chunks to subcollection
+          const batch = writeBatch(db);
+          for (let idx = 0; idx < chunks.length; idx++) {
+            const chunkRef = doc(db, 'archived_documents', docId, 'chunks', String(idx));
+            batch.set(chunkRef, { chunkIndex: idx, data: chunks[idx] });
+          }
+          await batch.commit();
+          // Clear dataBase64 from top document to avoid 1MB limit
+          dataBase64 = '';
         }
-        await batch.commit();
-        // Clear dataBase64 from top document to avoid 1MB limit
-        dataBase64 = '';
       }
     }
   }
@@ -383,6 +408,9 @@ export const saveToArchive = async (docData: ArchivedDocument, providedFile?: Fi
     storageType,
     storagePath,
     fileUrl: cloudFileUrl,
+    driveFileId,
+    driveWebViewLink,
+    driveWebContentLink,
     chunkCount,
     uploadedBy: userEmail,
     uploadDate: new Date(now).toISOString(),
@@ -402,6 +430,10 @@ export const saveToArchive = async (docData: ArchivedDocument, providedFile?: Fi
       {
         ...docData,
         id: docId,
+        storageType,
+        driveFileId,
+        driveWebViewLink,
+        driveWebContentLink,
         fileUrl: cloudFileUrl || (fileToSave ? URL.createObjectURL(fileToSave) : '')
       },
       ...local.filter((d: any) => d.id !== docId)
@@ -413,7 +445,7 @@ export const saveToArchive = async (docData: ArchivedDocument, providedFile?: Fi
 };
 
 /**
- * Removes a document from Cloud Firestore and Firebase Storage.
+ * Removes a document from Cloud Firestore and Firebase Storage (and Google Drive if stored there).
  */
 export const removeFromArchive = async (id: string) => {
   try {
@@ -422,7 +454,14 @@ export const removeFromArchive = async (id: string) => {
 
     if (snap.exists()) {
       const data = snap.data();
-      if (data.storagePath) {
+      if (data.storageType === 'google_drive' && data.driveFileId && isGoogleDriveConnected()) {
+        try {
+          await deleteFileFromGoogleDrive(data.driveFileId, data.fileName || 'documento');
+        } catch (e) {
+          console.warn('Errore eliminazione file da Google Drive:', e);
+        }
+      }
+      if (data.storagePath && data.storageType === 'firebase_storage') {
         await tryDeleteFromFirebaseStorage(data.storagePath);
       }
 
@@ -464,6 +503,8 @@ export interface CloudTabAttachment {
   fileUrl?: string;
   storagePath?: string;
   storageType?: string;
+  driveFileId?: string;
+  driveWebViewLink?: string;
   dataBase64?: string;
   chunkCount?: number;
   updatedAt?: number;
@@ -479,7 +520,9 @@ export const getTabAttachment = async (tab: string): Promise<CloudTabAttachment 
       const data = snap.data();
       let url = data.fileUrl || '';
 
-      if (!url && data.storageType === 'firestore_inline' && data.dataBase64) {
+      if (data.storageType === 'google_drive') {
+        url = data.driveWebViewLink || data.fileUrl || '';
+      } else if (!url && data.storageType === 'firestore_inline' && data.dataBase64) {
         const blob = base64ToBlob(data.dataBase64);
         url = URL.createObjectURL(blob);
       } else if (!url && data.storageType === 'firestore_chunked' && data.chunkCount) {
@@ -505,6 +548,8 @@ export const getTabAttachment = async (tab: string): Promise<CloudTabAttachment 
         fileUrl: data.fileUrl,
         storagePath: data.storagePath,
         storageType: data.storageType,
+        driveFileId: data.driveFileId,
+        driveWebViewLink: data.driveWebViewLink,
         dataBase64: data.dataBase64,
         chunkCount: data.chunkCount
       };
@@ -532,34 +577,52 @@ export const saveTabAttachment = async (
   let cloudFileUrl = '';
   let dataBase64 = '';
   let chunkCount = 0;
+  let driveFileId = '';
+  let driveWebViewLink = '';
 
-  // Try Firebase Storage first with 3.5s timeout
-  const storageUrl = await tryUploadToFirebaseStorage(storagePath, fileToSave);
-  if (storageUrl) {
-    storageType = 'firebase_storage';
-    cloudFileUrl = storageUrl;
-  } else {
-    storagePath = '';
-    dataBase64 = await fileToBase64(fileToSave);
+  // 0. Try Google Drive if connected
+  if (isGoogleDriveConnected()) {
+    try {
+      const driveRes = await uploadFileToGoogleDrive(fileToSave, attachment.name);
+      storageType = 'google_drive';
+      cloudFileUrl = driveRes.webViewLink;
+      storagePath = driveRes.fileId;
+      driveFileId = driveRes.fileId;
+      driveWebViewLink = driveRes.webViewLink;
+    } catch (driveErr) {
+      console.warn('Google Drive tab upload non riuscito, uso fallback:', driveErr);
+    }
+  }
 
-    if (dataBase64.length <= 750000) {
-      storageType = 'firestore_inline';
+  if (storageType !== 'google_drive') {
+    // Try Firebase Storage first with 3.5s timeout
+    const storageUrl = await tryUploadToFirebaseStorage(storagePath, fileToSave);
+    if (storageUrl) {
+      storageType = 'firebase_storage';
+      cloudFileUrl = storageUrl;
     } else {
-      // Chunking for large files to avoid Firestore 1MB document limit
-      storageType = 'firestore_chunked';
-      const chunks: string[] = [];
-      for (let i = 0; i < dataBase64.length; i += CHUNK_CHAR_LIMIT) {
-        chunks.push(dataBase64.substring(i, i + CHUNK_CHAR_LIMIT));
-      }
-      chunkCount = chunks.length;
+      storagePath = '';
+      dataBase64 = await fileToBase64(fileToSave);
 
-      const batch = writeBatch(db);
-      for (let idx = 0; idx < chunks.length; idx++) {
-        const chunkRef = doc(db, 'fatturazione_attachments', safeTabKey, 'chunks', String(idx));
-        batch.set(chunkRef, { chunkIndex: idx, data: chunks[idx] });
+      if (dataBase64.length <= 750000) {
+        storageType = 'firestore_inline';
+      } else {
+        // Chunking for large files to avoid Firestore 1MB document limit
+        storageType = 'firestore_chunked';
+        const chunks: string[] = [];
+        for (let i = 0; i < dataBase64.length; i += CHUNK_CHAR_LIMIT) {
+          chunks.push(dataBase64.substring(i, i + CHUNK_CHAR_LIMIT));
+        }
+        chunkCount = chunks.length;
+
+        const batch = writeBatch(db);
+        for (let idx = 0; idx < chunks.length; idx++) {
+          const chunkRef = doc(db, 'fatturazione_attachments', safeTabKey, 'chunks', String(idx));
+          batch.set(chunkRef, { chunkIndex: idx, data: chunks[idx] });
+        }
+        await batch.commit();
+        dataBase64 = '';
       }
-      await batch.commit();
-      dataBase64 = '';
     }
   }
 
@@ -573,6 +636,8 @@ export const saveTabAttachment = async (
     fileUrl: cloudFileUrl,
     storagePath,
     storageType,
+    driveFileId,
+    driveWebViewLink,
     chunkCount,
     dataBase64: storageType === 'firestore_inline' ? dataBase64 : '',
     updatedAt: now
@@ -593,7 +658,14 @@ export const removeTabAttachment = async (tab: string) => {
     const snap = await getDoc(docRef);
     if (snap.exists()) {
       const data = snap.data();
-      if (data.storagePath) {
+      if (data.storageType === 'google_drive' && data.driveFileId && isGoogleDriveConnected()) {
+        try {
+          await deleteFileFromGoogleDrive(data.driveFileId, data.name || tab);
+        } catch (e) {
+          console.warn('Errore eliminazione da Google Drive:', e);
+        }
+      }
+      if (data.storagePath && data.storageType === 'firebase_storage') {
         await tryDeleteFromFirebaseStorage(data.storagePath);
       }
       if (data.storageType === 'firestore_chunked') {

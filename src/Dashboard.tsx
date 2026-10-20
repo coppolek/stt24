@@ -2,8 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { 
   Home, Link, Trash2, Edit, Plus,
   Filter, LogOut, Copy, Search, Wrench, FileText, Users, Download, Calculator, FolderOpen,
-  Clock, CheckCircle2, RotateCcw
+  Clock, CheckCircle2, RotateCcw, Database, ExternalLink, HardDrive
 } from 'lucide-react';
+import {
+  connectGoogleDrive,
+  disconnectGoogleDrive,
+  switchGoogleDriveAccount,
+  subscribeDriveState,
+} from './googleDrive';
 import { useAuth } from './AuthContext';
 import { logout, db, handleFirestoreError, OperationType } from './firebase';
 import { collection, onSnapshot, query, where, orderBy, addDoc, doc, deleteDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
@@ -65,13 +71,26 @@ function TicketList({ onOpenModal }: TicketListProps) {
     if (!takeInChargeTicket) return;
     setIsSavingTakeInCharge(true);
     try {
-      await updateDoc(doc(db, 'tickets', takeInChargeTicket.id), {
+      const updateData = {
         stato: targetStatus,
         note: providerResponseText.trim(),
         soluzione: solutionText.trim(),
         gestitoDa: user?.email || 'operatore',
         gestitoIl: Date.now()
-      });
+      };
+      await updateDoc(doc(db, 'tickets', takeInChargeTicket.id), updateData);
+      
+      // Auto-sync to Oracle in the background
+      fetch('/api/oracle/tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: takeInChargeTicket.id,
+          ...takeInChargeTicket,
+          ...updateData,
+        }),
+      }).catch(() => {});
+
       toast.success(
         targetStatus === 'Chiusa' 
           ? 'Ticket chiuso con successo!' 
@@ -89,11 +108,24 @@ function TicketList({ onOpenModal }: TicketListProps) {
     if (!takeInChargeTicket) return;
     setIsSavingTakeInCharge(true);
     try {
-      await updateDoc(doc(db, 'tickets', takeInChargeTicket.id), {
+      const updateData = {
         stato: 'Presa in carico',
         gestitoDa: user?.email || 'operatore',
         gestitoIl: Date.now()
-      });
+      };
+      await updateDoc(doc(db, 'tickets', takeInChargeTicket.id), updateData);
+
+      // Auto-sync to Oracle in the background
+      fetch('/api/oracle/tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: takeInChargeTicket.id,
+          ...takeInChargeTicket,
+          ...updateData,
+        }),
+      }).catch(() => {});
+
       toast.success('Ticket preso in carico!');
       setTakeInChargeTicket(null);
     } catch (error) {
@@ -803,6 +835,87 @@ export default function Dashboard() {
   const [isRoleManagerOpen, setIsRoleManagerOpen] = useState(false);
   const [ticketToEdit, setTicketToEdit] = useState<Ticket | null>(null);
   const [currentView, setCurrentView] = useState<'home' | 'fatturazione' | 'archiviazione'>('home');
+  const [oracleStatus, setOracleStatus] = useState<{ connected: boolean; connecting: boolean }>({
+    connected: false,
+    connecting: true,
+  });
+
+  const [driveState, setDriveState] = useState<{ isConnected: boolean; email: string | null; folderLink: string | null }>({
+    isConnected: false,
+    email: null,
+    folderLink: null,
+  });
+  const [isConnectingDrive, setIsConnectingDrive] = useState(false);
+
+  useEffect(() => {
+    return subscribeDriveState((st) => setDriveState(st));
+  }, []);
+
+  const handleConnectDrive = async () => {
+    setIsConnectingDrive(true);
+    const toastId = toast.loading('Collegamento a Google Drive in corso...');
+    try {
+      const res = await connectGoogleDrive();
+      if (res.success) {
+        toast.success(`Google Drive collegato con successo (${res.email})! Cartella "Stt24 Allegati" pronta per i tuoi file.`, { id: toastId });
+      } else if (res.cancelled) {
+        toast.dismiss(toastId);
+      } else {
+        toast.error(res.error || 'Collegamento a Google Drive annullato.', { id: toastId });
+      }
+    } catch {
+      toast.dismiss(toastId);
+    } finally {
+      setIsConnectingDrive(false);
+    }
+  };
+
+  const handleSwitchDriveAccount = async () => {
+    setIsConnectingDrive(true);
+    const toastId = toast.loading('Selezione account Google Drive...');
+    try {
+      const res = await switchGoogleDriveAccount();
+      if (res.success) {
+        toast.success(`Google Drive collegato con successo (${res.email})! Cartella "Stt24 Allegati" pronta.`, { id: toastId });
+      } else if (res.cancelled) {
+        toast.dismiss(toastId);
+      } else {
+        toast.error(res.error || 'Selezione account annullata.', { id: toastId });
+      }
+    } catch {
+      toast.dismiss(toastId);
+    } finally {
+      setIsConnectingDrive(false);
+    }
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+    const checkOracle = () => {
+      fetch('/api/oracle/status')
+        .then((res) => res.json())
+        .then((data) => {
+          if (isMounted) {
+            setOracleStatus({
+              connected: !!data.connected,
+              connecting: !!data.connecting,
+            });
+          }
+        })
+        .catch(() => {
+          if (isMounted) {
+            setOracleStatus({ connected: false, connecting: false });
+          }
+        });
+    };
+
+    checkOracle();
+    const interval = setInterval(checkOracle, 10000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const handleOpenModal = (ticket?: Ticket) => {
     setTicketToEdit(ticket || null);
@@ -849,6 +962,82 @@ export default function Dashboard() {
             <span className="font-semibold tracking-wide text-sm">Stt24 Web Container</span>
           </div>
           <div className="flex items-center gap-4">
+            {/* Oracle DB Automatic Connection Badge (No admin panel) */}
+            <div
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium cursor-default select-none border transition-colors ${
+                oracleStatus.connected
+                  ? 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40'
+                  : 'bg-sky-500/15 text-sky-200 border-sky-400/30'
+              }`}
+              title={
+                oracleStatus.connected
+                  ? 'Oracle Autonomous Database: Collegamento automatico attivo'
+                  : 'Oracle Autonomous Database: Connessione automatica in background...'
+              }
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  oracleStatus.connected ? 'bg-emerald-400 animate-pulse' : 'bg-sky-400 animate-ping'
+                }`}
+              />
+              <Database size={13} className={oracleStatus.connected ? 'text-emerald-400' : 'text-sky-300'} />
+              <span>{oracleStatus.connected ? 'Oracle DB' : 'Oracle DB (Auto)'}</span>
+            </div>
+
+            {/* Google Drive Status & Connection Badge */}
+            {driveState.isConnected ? (
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium border bg-emerald-500/20 text-emerald-200 border-emerald-400/40 select-none"
+                title={`Google Drive collegato con l'account: ${driveState.email || 'Attivo'}. Cartella: "Stt24 Allegati".`}
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <HardDrive size={13} className="text-emerald-300" />
+                <span className="font-semibold">Drive:</span>
+                <span className="max-w-[130px] truncate text-emerald-100" title={driveState.email || ''}>
+                  {driveState.email || 'Stt24 Allegati'}
+                </span>
+                {driveState.folderLink && (
+                  <a
+                    href={driveState.folderLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-emerald-300 hover:text-white ml-0.5 p-0.5 rounded hover:bg-emerald-500/30 transition-colors"
+                    title="Apri la cartella Stt24 Allegati in Google Drive"
+                  >
+                    <ExternalLink size={12} />
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={handleSwitchDriveAccount}
+                  disabled={isConnectingDrive}
+                  className="text-emerald-200 hover:text-white text-[11px] ml-1.5 px-1.5 py-0.5 bg-emerald-700/40 hover:bg-emerald-600/60 rounded border border-emerald-400/30 transition-colors"
+                  title="Accedi o seleziona un altro account Google per Google Drive"
+                >
+                  Cambia
+                </button>
+                <button
+                  type="button"
+                  onClick={disconnectGoogleDrive}
+                  className="text-emerald-300/70 hover:text-red-300 text-[10px] ml-1 hover:underline"
+                  title="Scollega Google Drive"
+                >
+                  Scollega
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleConnectDrive}
+                disabled={isConnectingDrive}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium border bg-white/10 hover:bg-white/20 text-white border-white/20 transition-colors disabled:opacity-50"
+                title="Collega un account Google Drive per archiviare tutti gli allegati e documenti nella cartella Stt24 Allegati"
+              >
+                <HardDrive size={13} className="text-sky-300" />
+                <span>{isConnectingDrive ? 'Connessione...' : 'Collega Google Drive'}</span>
+              </button>
+            )}
+
             <div className="flex items-center gap-2">
               <div className="bg-white/20 px-3 py-1 rounded text-xs font-medium">
                 {user?.email}

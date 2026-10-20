@@ -514,11 +514,12 @@ export default function FatturazioneView() {
               type="text"
               value={customFileName}
               onChange={(e) => setCustomFileName(e.target.value)}
+              placeholder={pendingFile.name}
               disabled={isSavingAttachment}
               className="w-full border border-gray-300 rounded-md px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#3b4781] mb-6 font-medium text-gray-800 disabled:bg-gray-100"
               autoFocus
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && customFileName.trim() && !isSavingAttachment) {
+                if (e.key === 'Enter' && !isSavingAttachment) {
                   confirmFileUpload();
                 }
               }}
@@ -535,7 +536,7 @@ export default function FatturazioneView() {
               <button
                 type="button"
                 onClick={confirmFileUpload}
-                disabled={!customFileName.trim() || isSavingAttachment}
+                disabled={isSavingAttachment}
                 className="flex items-center gap-2 px-4 py-2 bg-[#3b4781] hover:bg-[#2d325a] text-white rounded-md font-medium transition-colors disabled:opacity-50 cursor-pointer"
               >
                 {isSavingAttachment ? (

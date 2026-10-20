@@ -12,7 +12,8 @@ import {
   Cloud, 
   Download, 
   Loader2, 
-  CheckCircle2 
+  CheckCircle2,
+  HardDrive
 } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import { 
@@ -23,6 +24,12 @@ import {
   getDocumentFileUrl,
   ArchivedDocument 
 } from './storage';
+import {
+  isGoogleDriveConnected,
+  connectGoogleDrive,
+  switchGoogleDriveAccount,
+  subscribeDriveState,
+} from './googleDrive';
 import { toast } from 'react-hot-toast';
 
 export default function ArchivioFatturazioneView() {
@@ -37,6 +44,16 @@ export default function ArchivioFatturazioneView() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [driveState, setDriveState] = useState<{ isConnected: boolean; email: string | null; folderLink: string | null }>({
+    isConnected: false,
+    email: null,
+    folderLink: null,
+  });
+
+  useEffect(() => {
+    return subscribeDriveState((st) => setDriveState(st));
+  }, []);
 
   // Deletion confirmation
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -177,13 +194,69 @@ export default function ArchivioFatturazioneView() {
         {/* Upload Form */}
         {isWriter ? (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5 w-full md:w-1/3 shrink-0">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-lg text-gray-800 flex items-center gap-2">
                 <Upload size={18} className="text-[#3b4781]" />
-                Nuovo Caricamento in Cloud
+                Nuovo Caricamento
               </h3>
-              <Cloud size={18} className="text-emerald-600" />
+              {driveState.isConnected ? (
+                <span className="flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                  <HardDrive size={12} />
+                  Google Drive
+                </span>
+              ) : (
+                <Cloud size={18} className="text-gray-400" />
+              )}
             </div>
+
+            {/* Google Drive Status Banner */}
+            {driveState.isConnected ? (
+              <div className="mb-4 p-2.5 bg-emerald-50/80 border border-emerald-200 rounded-md text-xs text-emerald-800 flex flex-col gap-1.5">
+                <div className="flex items-center justify-between font-medium">
+                  <span className="flex items-center gap-1.5">
+                    <HardDrive size={14} className="text-emerald-600" />
+                    Destinazione: <strong>Google Drive</strong>
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {driveState.folderLink && (
+                      <a
+                        href={driveState.folderLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-emerald-700 hover:text-emerald-900 underline inline-flex items-center gap-1 text-[11px]"
+                      >
+                        Cartella <ExternalLink size={10} />
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => switchGoogleDriveAccount()}
+                      className="text-emerald-700 hover:text-emerald-900 font-semibold underline text-[11px]"
+                      title="Accedi o seleziona un altro account Google Drive"
+                    >
+                      Cambia account
+                    </button>
+                  </div>
+                </div>
+                <div className="text-[11px] text-emerald-700/90 flex items-center justify-between">
+                  <span>Account attivo: <strong>{driveState.email}</strong></span>
+                </div>
+              </div>
+            ) : (
+              <div className="mb-4 p-2.5 bg-sky-50 border border-sky-200 rounded-md text-xs text-sky-800 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <HardDrive size={14} className="text-sky-600 flex-shrink-0" />
+                  <span>Archiviazione su Google Drive</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => connectGoogleDrive()}
+                  className="px-2 py-1 bg-white border border-sky-300 text-sky-700 rounded font-medium hover:bg-sky-100 transition-colors text-[11px] inline-flex items-center gap-1 shadow-2xs"
+                >
+                  Collega
+                </button>
+              </div>
+            )}
             
             <div className="space-y-4">
               <div>
@@ -317,10 +390,17 @@ export default function ArchivioFatturazioneView() {
                       <td className="px-4 py-3 font-medium text-gray-900 truncate max-w-[240px]" title={doc.relatedId || doc.fileName}>
                         <div className="flex items-center gap-2">
                           <span className="font-semibold text-gray-800">{doc.relatedId || doc.fileName}</span>
-                          <span className="inline-flex items-center gap-0.5 text-[10px] bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded font-mono border border-sky-100" title="Salvato su Google Cloud">
-                            <Cloud size={10} />
-                            Cloud
-                          </span>
+                          {doc.storageType === 'google_drive' ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-medium border border-emerald-200" title="Archiviato in Google Drive">
+                              <HardDrive size={10} className="text-emerald-600" />
+                              Drive
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded font-mono border border-sky-100" title="Salvato su Google Cloud">
+                              <Cloud size={10} />
+                              Cloud
+                            </span>
+                          )}
                         </div>
                         {doc.relatedId && doc.fileName && doc.relatedId !== doc.fileName && (
                           <span className="block text-xs text-gray-400 font-mono mt-0.5">{doc.fileName}</span>
@@ -337,15 +417,24 @@ export default function ArchivioFatturazioneView() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {/* Scarica o Apri dal Cloud */}
+                          {/* Scarica o Apri dal Cloud / Google Drive */}
                           <button
                             type="button"
                             onClick={() => handleOpenOrDownload(doc)}
                             className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors flex items-center gap-1 text-xs"
-                            title="Visualizza / Scarica dal Cloud"
+                            title={doc.storageType === 'google_drive' ? 'Apri in Google Drive' : 'Visualizza / Scarica'}
                           >
-                            <Download size={16} />
-                            <span className="hidden sm:inline">Scarica</span>
+                            {doc.storageType === 'google_drive' ? (
+                              <>
+                                <HardDrive size={15} className="text-emerald-600" />
+                                <span className="hidden sm:inline font-medium text-emerald-700">Apri su Drive</span>
+                              </>
+                            ) : (
+                              <>
+                                <Download size={16} />
+                                <span className="hidden sm:inline">Scarica</span>
+                              </>
+                            )}
                           </button>
 
                           {/* Se c'è un url diretto, consenti anche apertura in nuova scheda */}
